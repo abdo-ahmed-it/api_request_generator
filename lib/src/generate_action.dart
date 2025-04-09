@@ -65,7 +65,7 @@ String generateAction({
 
   return '''
 import 'package:api_request/api_request.dart';
-import 'dart:convert';
+
 
 class ${name}Action extends ApiRequestAction<${name}Response> {
   ${getAuthRequiredText()}

@@ -6,27 +6,50 @@ import 'package:dart_style/dart_style.dart';
 
 class GenerateActionsFromCollectionCommand extends Command {
   GenerateActionsFromCollectionCommand() {
-    argParser.addOption('path',
-        abbr: 'p',
-        help: 'Path to the Postman collection JSON file',
-        mandatory: true);
-    argParser.addFlag('only-predefined',
-        help: 'Generate actions only from predefined responses',
-        defaultsTo: false);
+    argParser.addOption('config',
+        abbr: 'c',
+        help: 'Path to the config.json file',
+        defaultsTo: 'config.json');
   }
 
   final logger = Logger();
 
   @override
-  String get description => 'Generate actions and responses from a Postman collection';
+  String get description => 'Generate actions and responses from a Postman collection using a config file';
 
   @override
   String get name => 'actions-from-collection';
 
   @override
   void run() async {
-    String collectionPath = argResults!['path'];
-    bool onlyPredefined = argResults!['only-predefined'];
+    String configPath = argResults!['config'];
+    File configFile = File(configPath);
+
+    if (!configFile.existsSync()) {
+      logger.e('Error: Config file not found at $configPath');
+      exit(1);
+    }
+
+    logger.i('Reading config from $configPath...');
+    String configContent = configFile.readAsStringSync();
+    Map<String, dynamic> config;
+    try {
+      config = jsonDecode(configContent);
+    } catch (e) {
+      logger.e('Error parsing config.json', error: e);
+      exit(1);
+    }
+
+    String baseUrl = config['base_url'];
+    String? token = config['token'];
+    String collectionPath = config['collection_path'] ?? 'lib/api/postman_collection.json';
+    String outputDir = config['output_dir'] ?? 'lib/actions';
+    List<String> excludedEndpoints = (config['excluded_endpoints'] as List<dynamic>?)?.cast<String>() ?? [];
+
+    logger.i('Config loaded: base_url=$baseUrl, token=$token, collection_path=$collectionPath');
+    if (excludedEndpoints.isNotEmpty) {
+      logger.i('Excluded endpoints: ${excludedEndpoints.join(', ')}');
+    }
 
     File collectionFile = File(collectionPath);
     if (!collectionFile.existsSync()) {
@@ -38,45 +61,52 @@ class GenerateActionsFromCollectionCommand extends Command {
     String content = collectionFile.readAsStringSync();
     Map<String, dynamic> collection = jsonDecode(content);
 
-    String baseUrl = collection['variable'].firstWhere(
-            (v) => v['key'] == 'base_url' && !v.containsKey('disabled'),
-        orElse: () => {'key': 'base_url', 'value': 'https://default.api'})['value'];
-    String token = collection['variable']
-        .firstWhere((v) => v['key'] == 'token', orElse: () => {'key': 'token', 'value': ''})['value'];
+    Directory(outputDir).createSync(recursive: true);
+    int excludedCount = await processItems(collection['item'], baseUrl, token, outputDir, excludedEndpoints);
 
-
-    String baseOutputDir = 'lib/actions';
-    Directory(baseOutputDir).createSync(recursive: true);
-    await processItems(collection['item'], baseUrl, token, onlyPredefined, baseOutputDir);
-
-    logger.i('DONE!');
+    logger.i('Actions generated successfully in $outputDir');
+    logger.i('Total excluded endpoints: $excludedCount');
   }
 
-  Future<void> processItems(List<dynamic> items, String baseUrl, String token,
-      bool onlyPredefined, String outputPath) async {
+  Future<int> processItems(
+      List<dynamic> items,
+      String baseUrl,
+      String? token,
+      String outputPath,
+      List<String> excludedEndpoints) async {
+    int excludedCount = 0; // عداد الـ endpoints المستثناة
+
     for (var item in items) {
       String itemName = item['name'].toLowerCase().replaceAll(' ', '_');
       if (item.containsKey('request')) {
         String endpointName = item['name'];
         var request = item['request'];
         String method = request['method'];
-        String url = '$baseUrl/${request['url']['path'].join('/')}';
+        String path = '/${request['url']['path'].join('/')}';
+        String url = '$baseUrl$path';
         List<dynamic> responses = item['response'];
 
-        String authType = 'No Auth';
+        if (excludedEndpoints.contains(path)) {
+          logger.w('Skipped $endpointName: Endpoint $path is in excluded_endpoints');
+          excludedCount++; // زيادة العداد
+          continue;
+        }
+
+        String authType = 'noauth';
         if (request.containsKey('auth') && request['auth'] != null) {
-          if (request['auth']['type'] == 'bearer') authType = 'Bearer';
+          authType = request['auth']['type'];
         }
 
         String? responseBody;
         if (responses.isNotEmpty) {
           responseBody = responses[0]['body'];
-        } else if (!onlyPredefined) {
+        } else {
           responseBody = await fetchResponse(
             url: url,
             method: method,
-            token: authType == 'Bearer' ? token : null,
+            token: authType != 'noauth' ? token : null,
             body: request['body'],
+            authType: authType,
           );
         }
 
@@ -88,7 +118,7 @@ class GenerateActionsFromCollectionCommand extends Command {
               method: method,
               body: request['body'],
               path: request['url']['path'].join('/'),
-              isAuth: authType == 'Bearer',
+              isAuth: authType != 'noauth',
             );
             String responseCode = generateResponse(responseBody, modelName);
 
@@ -103,6 +133,7 @@ $responseCode
             logger.i('Generated $filePath from $endpointName');
           } catch (e) {
             logger.e('Error parsing response for $endpointName', error: e);
+            logger.d('Raw responseBody on error: $responseBody');
           }
         } else {
           logger.w('Skipped $endpointName: No response available');
@@ -110,8 +141,9 @@ $responseCode
       } else if (item.containsKey('item')) {
         String newOutputPath = '$outputPath/$itemName';
         Directory(newOutputPath).createSync(recursive: true);
-        await processItems(item['item'], baseUrl, token, onlyPredefined, newOutputPath);
+        excludedCount += await processItems(item['item'], baseUrl, token, newOutputPath, excludedEndpoints);
       }
     }
+    return excludedCount; // إرجاع العدد الإجمالي للمستثنيات
   }
 }

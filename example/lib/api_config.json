@@ -1,0 +1,7 @@
+{
+  "base_url": "https://derman.code-link.com/api",
+  "token": "47|5ZWsMTsQQqZ4aGW8lEYOL548RxSdjXw5c8xvpM2ic1c201b9",
+  "collection_path": "lib/api/postman_collection.json",
+  "output_dir": "lib/actions2",
+  "excluded_endpoints": ["/api/auth/logout"]
+}

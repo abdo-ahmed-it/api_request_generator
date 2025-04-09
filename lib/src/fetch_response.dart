@@ -9,9 +9,10 @@ Future<String?> fetchResponse({
   required String method,
   String? token,
   dynamic body,
+  String authType='noauth',
 }) async {
   final logger = Logger();
-  final headers = _prepareHeaders(token);
+  final headers = _prepareHeaders(token,authType);
   final processedBody = processBody(body);
 
   logger.n(
@@ -46,11 +47,19 @@ Future<String?> fetchResponse({
   }
 }
 
-// دالة لتحضير الـ headers
-Map<String, String> _prepareHeaders(String? token) {
+Map<String, String> _prepareHeaders(String? token, String authType) {
   var headers = {'Accept': 'application/json'};
   if (token != null) {
-    headers['Authorization'] = token;
+    switch (authType) {
+      case 'bearer':
+        headers['Authorization'] = 'Bearer $token';
+        break;
+      case 'basic':
+        headers['Authorization'] = 'Basic $token';
+        break;
+      default:
+        headers['Authorization'] = token;
+    }
   }
   return headers;
 }

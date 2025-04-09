@@ -1,5 +1,4 @@
 import 'package:api_request/api_request.dart';
-import 'dart:convert';
 
 class FilterDataAction extends ApiRequestAction<FilterDataResponse> {
   @override

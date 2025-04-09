@@ -1,7 +1,7 @@
 import 'package:api_request/api_request.dart';
-import 'dart:convert';
 
-class UpdateProfileAction extends ApiRequestAction<UpdateProfileResponse> {
+class ReserveAppointmentAction
+    extends ApiRequestAction<ReserveAppointmentResponse> {
   @override
   bool get authRequired => true;
 
@@ -9,30 +9,30 @@ class UpdateProfileAction extends ApiRequestAction<UpdateProfileResponse> {
   RequestMethod get method => RequestMethod.POST;
 
   @override
-  String get path => 'auth/profile/update';
+  String get path => 'service/make/reservation';
 
   @override
   Map<String, dynamic> get toMap => {
-    "name": "Ahmed",
-    "email": "client@info.com",
-    "phone": "503649187",
-    "phone_code": "966",
+    "date": "2025-03-31",
+    "time": "18:00",
+    "service[0]": "1",
+    "service[1]": "2",
   };
 
   @override
   ContentDataType? get contentDataType => ContentDataType.formData;
 
   @override
-  ResponseBuilder<UpdateProfileResponse> get responseBuilder =>
-      (json) => UpdateProfileResponse.fromJson(json);
+  ResponseBuilder<ReserveAppointmentResponse> get responseBuilder =>
+      (json) => ReserveAppointmentResponse.fromJson(json);
 }
 
-class UpdateProfileResponse {
+class ReserveAppointmentResponse {
   String? message;
 
-  UpdateProfileResponse({this.message});
+  ReserveAppointmentResponse({this.message});
 
-  UpdateProfileResponse.fromJson(Map<String, dynamic> json) {
+  ReserveAppointmentResponse.fromJson(Map<String, dynamic> json) {
     message = json['message'];
   }
 

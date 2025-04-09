@@ -1,0 +1,1253 @@
+{
+	"info": {
+		"_postman_id": "53af994e-7b9d-4e74-bfab-57ecee335674",
+		"name": "almajdiah CRM",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "29320853",
+		"_collection_link": "https://code-link-team.postman.co/workspace/Team-Workspace~aadced7b-0b71-474b-88b5-a3f871ac5f26/collection/29320853-53af994e-7b9d-4e74-bfab-57ecee335674?action=share&source=collection_link&creator=29320853"
+	},
+	"item": [
+		{
+			"name": "CRM",
+			"item": [
+				{
+					"name": "CRM",
+					"item": [
+						{
+							"name": "client",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/crm/v1/client",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"crm",
+										"v1",
+										"client"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "client send-sms",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/crm/v1/client/send-sms",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"crm",
+										"v1",
+										"client",
+										"send-sms"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"pm.request.headers.add({key: 'X-API-KEY', value: '204eb644-92af-403a-ad87-3640a8db53a4' });"
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									""
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "rental",
+					"item": [
+						{
+							"name": "index",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/v1/rentals?project_id[0]=187&building_id[0]=724&unit_id[0]=8624&rental_type=housing&status[0]=in_progress&type[0]=in_unit&rental_soon_end=1&created_at=2024-05-01+-+2024-05-16",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"v1",
+										"rentals"
+									],
+									"query": [
+										{
+											"key": "project_id[0]",
+											"value": "187"
+										},
+										{
+											"key": "building_id[0]",
+											"value": "724"
+										},
+										{
+											"key": "unit_id[0]",
+											"value": "8624"
+										},
+										{
+											"key": "rental_type",
+											"value": "housing",
+											"description": "housing | rental"
+										},
+										{
+											"key": "status[0]",
+											"value": "in_progress",
+											"description": "in_progress | pending | completed"
+										},
+										{
+											"key": "type[0]",
+											"value": "in_unit",
+											"description": "in_unit | out_unit | owner_etmamm"
+										},
+										{
+											"key": "rental_soon_end",
+											"value": "1"
+										},
+										{
+											"key": "created_at",
+											"value": "2024-05-01+-+2024-05-16"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "show",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/v1/rentals/614",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"v1",
+										"rentals",
+										"614"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "refund request",
+					"item": [
+						{
+							"name": "index",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/v1/refund-request?project_id[0]=195&type[0]=sales&status[0]=pending&finance_status[0]=pending&client_id[0]=20&created_at=024-05-01 - 2024-05-19&unit_id[]=8657",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"v1",
+										"refund-request"
+									],
+									"query": [
+										{
+											"key": "project_id[0]",
+											"value": "195"
+										},
+										{
+											"key": "type[0]",
+											"value": "sales",
+											"description": "sales | sanad_orbon | sanad_tax | sanad_receipt | sanad_brokerage"
+										},
+										{
+											"key": "status[0]",
+											"value": "pending"
+										},
+										{
+											"key": "finance_status[0]",
+											"value": "pending"
+										},
+										{
+											"key": "client_id[0]",
+											"value": "20"
+										},
+										{
+											"key": "created_at",
+											"value": "024-05-01 - 2024-05-19"
+										},
+										{
+											"key": "unit_id[]",
+											"value": "8657"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "show",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/v1/refund-request/408",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"v1",
+										"refund-request",
+										"408"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "land owners",
+					"item": [
+						{
+							"name": "index",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/v1/land-owners",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"v1",
+										"land-owners"
+									],
+									"query": [
+										{
+											"key": "search",
+											"value": "مكتب",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "show",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/v1/land-owners/67",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"v1",
+										"land-owners",
+										"67"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "sales",
+					"item": [
+						{
+							"name": "projects",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/projects",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"projects"
+									],
+									"query": [
+										{
+											"key": "owner_id",
+											"value": "33",
+											"disabled": true
+										},
+										{
+											"key": "is_sales_on_map",
+											"value": "1",
+											"disabled": true
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "show project",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/project/176",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"project",
+										"176"
+									]
+								}
+							},
+							"response": [
+								{
+									"name": "show project",
+									"originalRequest": {
+										"method": "GET",
+										"header": [
+											{
+												"key": "Accept",
+												"value": "application/json"
+											}
+										],
+										"body": {
+											"mode": "formdata",
+											"formdata": []
+										},
+										"url": {
+											"raw": "{{url}}/sales/v1/project/176",
+											"host": [
+												"{{url}}"
+											],
+											"path": [
+												"sales",
+												"v1",
+												"project",
+												"176"
+											]
+										}
+									},
+									"status": "OK",
+									"code": 200,
+									"_postman_previewlanguage": "json",
+									"header": [
+										{
+											"key": "Server",
+											"value": "nginx/1.25.1"
+										},
+										{
+											"key": "Content-Type",
+											"value": "application/json"
+										},
+										{
+											"key": "Transfer-Encoding",
+											"value": "chunked"
+										},
+										{
+											"key": "Connection",
+											"value": "keep-alive"
+										},
+										{
+											"key": "Vary",
+											"value": "Accept-Encoding"
+										},
+										{
+											"key": "X-Powered-By",
+											"value": "PHP/8.2.8"
+										},
+										{
+											"key": "Cache-Control",
+											"value": "no-cache, private"
+										},
+										{
+											"key": "Date",
+											"value": "Tue, 14 May 2024 19:23:36 GMT"
+										},
+										{
+											"key": "X-RateLimit-Limit",
+											"value": "60"
+										},
+										{
+											"key": "X-RateLimit-Remaining",
+											"value": "59"
+										},
+										{
+											"key": "phpdebugbar-id",
+											"value": "Xd35da74cafcd29c5db4f114d53b93653"
+										},
+										{
+											"key": "Access-Control-Allow-Origin",
+											"value": "*"
+										},
+										{
+											"key": "Content-Encoding",
+											"value": "gzip"
+										}
+									],
+									"cookie": [],
+									"body": "{\n    \"data\": {\n        \"id\": 176,\n        \"name\": \"الماجدية ريزدنس - 144\",\n        \"image\": \"http://etmaam.test/storage/site/projects/Wj4JCLKQ4Lewq1aYkHSocCcBMLiqCFedbnYVbqYb.jpg\",\n        \"status_text\": \"تحت البيع\",\n        \"license_number\": \"11294\",\n        \"code\": \"144\",\n        \"is_archiving\": false,\n        \"developer_name\": \"شركة دار الماجد العقارية\",\n        \"sales_start_date\": null,\n        \"sales_end_date\": null,\n        \"first_sale_date\": \"2023-10-26\",\n        \"last_sale_date\": \"2024-03-26\",\n        \"work_days\": null,\n        \"is_sales_on_map\": true,\n        \"sales_type\": \"بيع علي الخارطة\",\n        \"sales_on_mp_license_date\": null,\n        \"sales_on_mp_license_number\": null,\n        \"complete_map_percent\": 5,\n        \"cost_of_development\": 18500000,\n        \"project_receipt_date\": null,\n        \"units_delivery_date\": \"2024-04-01\",\n        \"comprehensive_warranty_period_from\": \"2024-04-01\",\n        \"comprehensive_warranty_period_to\": \"2025-04-01\",\n        \"comprehensive_warranty_years\": 1,\n        \"maintenance_cleaning_of_common_area_period_from\": \"2024-04-01\",\n        \"maintenance_cleaning_of_common_area_period_to\": \"2025-04-01\",\n        \"maintenance_cleaning_of_common_area_years\": 1,\n        \"designer_office\": \"الخليل\",\n        \"supervising_office\": \"الخليل\",\n        \"apartments_count\": 50,\n        \"villas_count\": null,\n        \"contractor_direct_start_at\": \"2022-06-01\",\n        \"contractor_execution_end_at\": \"2023-06-01\",\n        \"features\": [\n            {\n                \"id\": 1,\n                \"name\": \"حدائق داخلية\"\n            },\n            {\n                \"id\": 18,\n                \"name\": \"تكييف\"\n            },\n            {\n                \"id\": 20,\n                \"name\": \"رفاهية الأعمال\"\n            },\n            {\n                \"id\": 21,\n                \"name\": \"واجهات حديثة\"\n            },\n            {\n                \"id\": 22,\n                \"name\": \"شهادة الجودة\"\n            },\n            {\n                \"id\": 27,\n                \"name\": \"إنارة\"\n            },\n            {\n                \"id\": 28,\n                \"name\": \"مسطحات خضراء\"\n            },\n            {\n                \"id\": 29,\n                \"name\": \"شاشة ذكية\"\n            }\n        ],\n        \"sales_on_map_payment_schedule\": [\n            {\n                \"id\": 12,\n                \"payment_number\": 1,\n                \"payment_percent\": 20,\n                \"payment_percent_cumulative\": 20,\n                \"completion_percent\": 0,\n                \"completion_percent_cumulative\": 0,\n                \"note\": \"14/06/2022\"\n            },\n            {\n                \"id\": 13,\n                \"payment_number\": 2,\n                \"payment_percent\": 25,\n                \"payment_percent_cumulative\": 45,\n                \"completion_percent\": 45,\n                \"completion_percent_cumulative\": 45,\n                \"note\": \"15/08/2023\"\n            },\n            {\n                \"id\": 14,\n                \"payment_number\": 3,\n                \"payment_percent\": 25,\n                \"payment_percent_cumulative\": 70,\n                \"completion_percent\": 25,\n                \"completion_percent_cumulative\": 70,\n                \"note\": \"20/09/2023\"\n            },\n            {\n                \"id\": 15,\n                \"payment_number\": 4,\n                \"payment_percent\": 25,\n                \"payment_percent_cumulative\": 95,\n                \"completion_percent\": 25,\n                \"completion_percent_cumulative\": 95,\n                \"note\": \"15/10/2023\"\n            },\n            {\n                \"id\": 17,\n                \"payment_number\": 5,\n                \"payment_percent\": 5,\n                \"payment_percent_cumulative\": 100,\n                \"completion_percent\": 5,\n                \"completion_percent_cumulative\": 100,\n                \"note\": \"15/10/2023\"\n            }\n        ],\n        \"delegates\": [],\n        \"main_project_step\": {\n            \"id\": 410,\n            \"status\": \"in_progress\",\n            \"status_text\": \"قيد العمل\",\n            \"completed_percent\": 5,\n            \"started_at\": \"2023-11-08\",\n            \"ended_at\": \"2023-12-08\",\n            \"step_budget\": null,\n            \"step\": {\n                \"id\": 3,\n                \"name\": \"التنفيذ\"\n            }\n        },\n        \"sub_project_step\": {\n            \"id\": 418,\n            \"status\": \"pending\",\n            \"status_text\": \"قيد الإنتظار\",\n            \"completed_percent\": 0,\n            \"started_at\": null,\n            \"ended_at\": null,\n            \"step_budget\": null,\n            \"step\": {\n                \"id\": 14,\n                \"name\": \"الحفر\"\n            }\n        },\n        \"project_steps\": [\n            {\n                \"id\": 408,\n                \"status\": \"completed\",\n                \"status_text\": \"مكتمل\",\n                \"completed_percent\": 100,\n                \"started_at\": null,\n                \"ended_at\": \"2024-03-14\",\n                \"step_budget\": null,\n                \"step\": {\n                    \"id\": 1,\n                    \"name\": \"الدراسات وتقييم الفرصة\"\n                }\n            },\n            {\n                \"id\": 409,\n                \"status\": \"completed\",\n                \"status_text\": \"مكتمل\",\n                \"completed_percent\": 100,\n                \"started_at\": null,\n                \"ended_at\": \"2024-03-14\",\n                \"step_budget\": null,\n                \"step\": {\n                    \"id\": 2,\n                    \"name\": \"التخطيط والتصميم\"\n                }\n            },\n            {\n                \"id\": 410,\n                \"status\": \"in_progress\",\n                \"status_text\": \"قيد العمل\",\n                \"completed_percent\": 5,\n                \"started_at\": \"2023-11-08\",\n                \"ended_at\": \"2023-12-08\",\n                \"step_budget\": null,\n                \"step\": {\n                    \"id\": 3,\n                    \"name\": \"التنفيذ\"\n                }\n            },\n            {\n                \"id\": 415,\n                \"status\": \"in_progress\",\n                \"status_text\": \"قيد العمل\",\n                \"completed_percent\": 0,\n                \"started_at\": \"2023-12-04\",\n                \"ended_at\": null,\n                \"step_budget\": null,\n                \"step\": {\n                    \"id\": 11,\n                    \"name\": \"الإغلاق\"\n                }\n            }\n        ],\n        \"land_owner\": {\n            \"id\": 4,\n            \"name\": \"شركة جادة الربيع العقارية\",\n            \"type\": \"company\",\n            \"type_text\": \"شركة\",\n            \"phone\": \"920011719\"\n        },\n        \"land\": {\n            \"id\": 179,\n            \"title\": \"144\",\n            \"space\": 5010.8,\n            \"plan_number\": \"572-573-574\",\n            \"chart_number\": \"3243\",\n            \"price\": 0,\n            \"project_id\": 176,\n            \"longitude\": 0,\n            \"latitude\": 0,\n            \"block\": {\n                \"id\": 845,\n                \"name\": \"النرجس\",\n                \"city\": {\n                    \"id\": 16,\n                    \"name\": \"الرياض\"\n                }\n            }\n        }\n    }\n}"
+								}
+							]
+						},
+						{
+							"name": "show project units",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/project/44/units",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"project",
+										"44",
+										"units"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "show unit",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/unit/44",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"unit",
+										"44"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "clients",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/clients",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"clients"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "show client",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/clients/33",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"clients",
+										"33"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "attention-requests",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/attention-requests",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"attention-requests"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "attention-requests show",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/attention-requests/33",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"attention-requests",
+										"33"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "sales",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/sales?form_updated_at=2024-01-01&to_updated_at=2024-01-04",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"sales"
+									],
+									"query": [
+										{
+											"key": "form_updated_at",
+											"value": "2024-01-01"
+										},
+										{
+											"key": "to_updated_at",
+											"value": "2024-01-04"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "sales-operations",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/sales-operations?form_updated_at=2024-1-1&to_updated_at=2024-12-14",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"sales-operations"
+									],
+									"query": [
+										{
+											"key": "form_updated_at",
+											"value": "2024-1-1"
+										},
+										{
+											"key": "to_updated_at",
+											"value": "2024-12-14"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "show slae",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/sales/166",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"sales",
+										"166"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "show slae operations",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/sales/166/operations",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"sales",
+										"166",
+										"operations"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "owners",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/sales/v1/owners",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"sales",
+										"v1",
+										"owners"
+									]
+								}
+							},
+							"response": []
+						}
+					],
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									""
+								]
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									""
+								]
+							}
+						}
+					]
+				},
+				{
+					"name": "lands",
+					"item": [
+						{
+							"name": "index",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/v1/lands?search=مكتب&city_id=16",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"v1",
+										"lands"
+									],
+									"query": [
+										{
+											"key": "search",
+											"value": "مكتب"
+										},
+										{
+											"key": "block_id",
+											"value": "809",
+											"disabled": true
+										},
+										{
+											"key": "city_id",
+											"value": "16"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "show",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/v1/lands/211",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"v1",
+										"lands",
+										"211"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				}
+			],
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							"pm.request.headers.add({key: 'X-API-KEY', value:'202ez644-92rf-403a-ad87-3848a8fb53i4'});"
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "webhook",
+			"item": [
+				{
+					"name": "webhook",
+					"item": [
+						{
+							"name": "get create update data",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/webhook/webhook/get-create-update-data",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"webhook",
+										"webhook",
+										"get-create-update-data"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "index with filter",
+							"protocolProfileBehavior": {
+								"disableBodyPruning": true
+							},
+							"request": {
+								"method": "GET",
+								"header": [],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/webhook/webhook?type_id=2",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"webhook",
+										"webhook"
+									],
+									"query": [
+										{
+											"key": "type_id",
+											"value": "2"
+										}
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "store",
+							"request": {
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "formdata",
+									"formdata": [
+										{
+											"key": "url",
+											"value": "https://play.svix.com/in/e_xpo0YXkCnx2zrI5YyEXmGU82qGY/",
+											"type": "text"
+										},
+										{
+											"key": "method",
+											"value": "POST",
+											"type": "text"
+										},
+										{
+											"key": "webhook_type_id",
+											"value": "28",
+											"type": "text"
+										}
+									]
+								},
+								"url": {
+									"raw": "{{url}}/webhook/webhook",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"webhook",
+										"webhook"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "update",
+							"request": {
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "formdata",
+									"formdata": [
+										{
+											"key": "url",
+											"value": "http://etmaam.test/module/property-management/report3",
+											"type": "text"
+										},
+										{
+											"key": "method",
+											"value": "POST",
+											"type": "text"
+										},
+										{
+											"key": "webhook_type_id",
+											"value": "1",
+											"type": "text"
+										}
+									]
+								},
+								"url": {
+									"raw": "{{url}}/webhook/webhook/2",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"webhook",
+										"webhook",
+										"2"
+									]
+								}
+							},
+							"response": []
+						},
+						{
+							"name": "delete",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"body": {
+									"mode": "formdata",
+									"formdata": []
+								},
+								"url": {
+									"raw": "{{url}}/webhook/webhook/1",
+									"host": [
+										"{{url}}"
+									],
+									"path": [
+										"webhook",
+										"webhook",
+										"1"
+									]
+								}
+							},
+							"response": []
+						}
+					]
+				}
+			],
+			"event": [
+				{
+					"listen": "prerequest",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							"pm.request.headers.add({key: 'X-API-KEY', value: '1asrb644-91yf-403a-az2p7-3640a2fa51pn' });"
+						]
+					}
+				},
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"packages": {},
+						"exec": [
+							""
+						]
+					}
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "url",
+			"value": "http://etmaam.test/api",
+			"type": "string",
+			"disabled": true
+		},
+		{
+			"key": "url",
+			"value": "https://etmaam.almajdiah.com/api",
+			"type": "string"
+		}
+	]
+}

@@ -15,9 +15,10 @@ class GenerateActionsFromCollectionCommand extends Command {
         defaultsTo: false);
   }
 
+  final logger = Logger();
+
   @override
-  String get description =>
-      'Generate actions and responses from a Postman collection';
+  String get description => 'Generate actions and responses from a Postman collection';
 
   @override
   String get name => 'actions-from-collection';
@@ -29,36 +30,32 @@ class GenerateActionsFromCollectionCommand extends Command {
 
     File collectionFile = File(collectionPath);
     if (!collectionFile.existsSync()) {
-      print('Error: Collection file not found at $collectionPath');
+      logger.e('Error: Collection file not found at $collectionPath');
       exit(1);
     }
 
-    print('Processing collection at $collectionPath...');
+    logger.i('Processing collection at $collectionPath...');
     String content = collectionFile.readAsStringSync();
     Map<String, dynamic> collection = jsonDecode(content);
 
     String baseUrl = collection['variable'].firstWhere(
             (v) => v['key'] == 'base_url' && !v.containsKey('disabled'),
-        orElse: () =>
-        {'key': 'base_url', 'value': 'https://default.api'})['value'];
-    String token = collection['variable'].firstWhere((v) => v['key'] == 'token',
-        orElse: () => {'key': 'token', 'value': ''})['value'];
-    String locale = collection['variable'].firstWhere(
-            (v) => v['key'] == 'locale' && !v.containsKey('disabled'),
-        orElse: () => {'key': 'locale', 'value': 'en'})['value'];
+        orElse: () => {'key': 'base_url', 'value': 'https://default.api'})['value'];
+    String token = collection['variable']
+        .firstWhere((v) => v['key'] == 'token', orElse: () => {'key': 'token', 'value': ''})['value'];
+
 
     String baseOutputDir = 'lib/actions';
     Directory(baseOutputDir).createSync(recursive: true);
-    await processItems(collection['item'], baseUrl, token, locale, onlyPredefined, baseOutputDir);
+    await processItems(collection['item'], baseUrl, token, onlyPredefined, baseOutputDir);
 
-    print('Actions generated successfully');
+    logger.i('DONE!');
   }
 
   Future<void> processItems(List<dynamic> items, String baseUrl, String token,
-      String locale, bool onlyPredefined, String outputPath) async {
+      bool onlyPredefined, String outputPath) async {
     for (var item in items) {
       String itemName = item['name'].toLowerCase().replaceAll(' ', '_');
-      // Check if the item is a request
       if (item.containsKey('request')) {
         String endpointName = item['name'];
         var request = item['request'];
@@ -79,14 +76,12 @@ class GenerateActionsFromCollectionCommand extends Command {
             url: url,
             method: method,
             token: authType == 'Bearer' ? token : null,
-            locale: locale,
             body: request['body'],
           );
         }
 
         if (responseBody != null) {
           try {
-            print('Raw responseBody before jsonDecode: $responseBody');
             String modelName = endpointName.replaceAll(' ', '');
             String action = generateAction(
               name: modelName,
@@ -104,20 +99,18 @@ $responseCode
 ''';
             String filePath = '$outputPath/${itemName.toLowerCase().replaceAll(' ', '_')}_action.dart';
             File(filePath).writeAsStringSync(
-                DartFormatter(languageVersion: DartFormatter.latestLanguageVersion)
-                    .format(fileContent));
-            print('Generated $filePath from $endpointName');
+                DartFormatter(languageVersion: DartFormatter.latestLanguageVersion).format(fileContent));
+            logger.i('Generated $filePath from $endpointName');
           } catch (e) {
-            print('Error parsing response for $endpointName: $e');
-            print('Raw responseBody on error: $responseBody');
+            logger.e('Error parsing response for $endpointName', error: e);
           }
         } else {
-          print('Skipped $endpointName: No response available');
+          logger.w('Skipped $endpointName: No response available');
         }
       } else if (item.containsKey('item')) {
         String newOutputPath = '$outputPath/$itemName';
         Directory(newOutputPath).createSync(recursive: true);
-        await processItems(item['item'], baseUrl, token, locale, onlyPredefined, newOutputPath);
+        await processItems(item['item'], baseUrl, token, onlyPredefined, newOutputPath);
       }
     }
   }

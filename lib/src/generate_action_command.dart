@@ -45,10 +45,14 @@ class GenerateActionsFromCollectionCommand extends Command {
     String collectionPath = config['collection_path'] ?? 'lib/api/postman_collection.json';
     String outputDir = config['output_dir'] ?? 'lib/actions';
     List<String> excludedEndpoints = (config['excluded_endpoints'] as List<dynamic>?)?.cast<String>() ?? [];
+    List<String> includedEndpoints = (config['included_endpoints'] as List<dynamic>?)?.cast<String>() ?? [];
 
     logger.i('Config loaded: base_url=$baseUrl, token=$token, collection_path=$collectionPath');
     if (excludedEndpoints.isNotEmpty) {
       logger.i('Excluded endpoints: ${excludedEndpoints.join(', ')}');
+    }
+    if (includedEndpoints.isNotEmpty) {
+      logger.i('Included endpoints: ${includedEndpoints.join(', ')}');
     }
 
     File collectionFile = File(collectionPath);
@@ -62,7 +66,7 @@ class GenerateActionsFromCollectionCommand extends Command {
     Map<String, dynamic> collection = jsonDecode(content);
 
     Directory(outputDir).createSync(recursive: true);
-    int excludedCount = await processItems(collection['item'], baseUrl, token, outputDir, excludedEndpoints);
+    int excludedCount = await processItems(collection['item'], baseUrl, token, outputDir, excludedEndpoints, includedEndpoints);
 
     logger.i('Actions generated successfully in $outputDir');
     logger.i('Total excluded endpoints: $excludedCount');
@@ -73,8 +77,9 @@ class GenerateActionsFromCollectionCommand extends Command {
       String baseUrl,
       String? token,
       String outputPath,
-      List<String> excludedEndpoints) async {
-    int excludedCount = 0; // عداد الـ endpoints المستثناة
+      List<String> excludedEndpoints,
+      List<String> includedEndpoints) async {
+    int excludedCount = 0;
 
     for (var item in items) {
       String itemName = item['name'].toLowerCase().replaceAll(' ', '_');
@@ -86,9 +91,17 @@ class GenerateActionsFromCollectionCommand extends Command {
         String url = '$baseUrl$path';
         List<dynamic> responses = item['response'];
 
-        if (excludedEndpoints.contains(path)) {
+        String normalizedPath = path.startsWith('/') ? path.substring(1) : path;
+
+        if (includedEndpoints.isNotEmpty &&
+            !includedEndpoints.any((included) => included == path || included == normalizedPath)) {
+          logger.w('Skipped $endpointName: Endpoint $path is not in included_endpoints');
+          continue;
+        }
+
+        if (excludedEndpoints.any((excluded) => excluded == path || excluded == normalizedPath)) {
           logger.w('Skipped $endpointName: Endpoint $path is in excluded_endpoints');
-          excludedCount++; // زيادة العداد
+          excludedCount++;
           continue;
         }
 
@@ -141,9 +154,10 @@ $responseCode
       } else if (item.containsKey('item')) {
         String newOutputPath = '$outputPath/$itemName';
         Directory(newOutputPath).createSync(recursive: true);
-        excludedCount += await processItems(item['item'], baseUrl, token, newOutputPath, excludedEndpoints);
+        excludedCount += await processItems(
+            item['item'], baseUrl, token, newOutputPath, excludedEndpoints, includedEndpoints);
       }
     }
-    return excludedCount; // إرجاع العدد الإجمالي للمستثنيات
+    return excludedCount;
   }
 }

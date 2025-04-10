@@ -1,0 +1,11 @@
+{
+  "base_url": "https://derman.code-link.com/api",
+  "path": "/home",
+  "method": "GET",
+  "token": "47|5ZWsMTsQQqZ4aGW8lEYOL548RxSdjXw5c8xvpM2ic1c201b9",
+  "output_dir": "lib/actions2",
+  "action_name": "GetHomeAction",
+  "is_auth": true,
+  "auth_type": "bearer",
+  "data": {}
+}

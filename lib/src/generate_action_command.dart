@@ -106,7 +106,7 @@ class GenerateActionsFromCollectionCommand extends Command {
         }
 
         String authType = 'noauth';
-        if (request.containsKey('auth') && request['auth'] != null) {
+        if (request.containsKey('auth') && request['auth'].containsKey('type')) {
           authType = request['auth']['type'];
         }
 

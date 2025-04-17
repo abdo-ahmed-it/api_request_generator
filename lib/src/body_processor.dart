@@ -15,6 +15,18 @@ BodyData processBody(dynamic body) {
   if (body == null) {
     return BodyData(dataType: null, formData: null, rawBody: null, files: null);
   }
+  if (body is Map && !body.containsKey('mode')) {
+    Map<String, String> formData = {};
+    body.forEach((key, value) {
+      formData[key] = value.toString();
+    });
+    return BodyData(
+      dataType: ContentDataType.formData,
+      formData: formData,
+      rawBody: null,
+      files: null,
+    );
+  }
 
   switch (body['mode']) {
     case 'formdata':

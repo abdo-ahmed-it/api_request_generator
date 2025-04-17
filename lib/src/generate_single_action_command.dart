@@ -48,7 +48,8 @@ class GenerateSingleActionCommand extends Command {
     String actionName = (config['action_name'] as String?)?.trim().replaceAll(' ', '') ?? '';
     bool isAuth = config['is_auth'] as bool? ?? false;
     String authType = config['auth_type'] as String? ?? 'noauth';
-    dynamic data = config['data'] ?? {};
+    Map<String,dynamic> data = config['data'] ?? {};
+
 
     if (url.isEmpty || baseUrl.isEmpty) {
       logger.e('base_url and path cannot result in an empty URL');
@@ -61,7 +62,7 @@ class GenerateSingleActionCommand extends Command {
     }
 
     // التحقق من الـ Data (Body)
-    dynamic processedBody = data is Map && data.isNotEmpty ? data : null;
+    dynamic processedBody = data.isNotEmpty ? data : null;
 
     // التحقق من auth_type
     if (isAuth && !['noauth', 'bearer', 'basic'].contains(authType)) {

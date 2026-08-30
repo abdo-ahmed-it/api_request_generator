@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "api2dart": {
+      "command": "node",
+      "args": ["${CLAUDE_PROJECT_DIR:-.}/tools/api2dart-mcp/dist/index.js"],
+      "env": {
+        "API2DART_PROJECT_ROOT": "${CLAUDE_PROJECT_DIR:-.}",
+        "APIDOG_TOKEN": "${APIDOG_TOKEN:-}"
+      }
+    }
+  }
+}

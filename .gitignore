@@ -39,3 +39,7 @@ api2dart/
 .apigen/
 .apigen_debug_export.json
 .apigen_temp_*
+
+# MCP server (Node build artifacts)
+tools/api2dart-mcp/node_modules/
+tools/api2dart-mcp/dist/

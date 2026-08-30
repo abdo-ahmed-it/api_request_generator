@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'secret_redactor.dart';
+
 class RequestLog {
   final String requestName;
   final String requestMethod;
@@ -46,11 +48,12 @@ class RequestLog {
 
     // TL;DR — quick summary line
     sb.writeln(
-        '> $statusLine `$requestMethod` $url — ${_formatDuration(duration)}');
+        '> $statusLine `$requestMethod` ${SecretRedactor.text(url)} — '
+        '${_formatDuration(duration)}');
     sb.writeln();
 
     sb.writeln('**Method:** `$requestMethod`  ');
-    sb.writeln('**URL:** `$url`  ');
+    sb.writeln('**URL:** `${SecretRedactor.text(url)}`  ');
     sb.writeln('**Status:** $statusLine  ');
     sb.writeln('**Sent:** ${_formatTime(sentTime)}  ');
     sb.writeln('**Received:** ${_formatTime(receivedTime ?? sentTime)}  ');
@@ -66,7 +69,8 @@ class RequestLog {
       sb.writeln('_(none)_');
     } else {
       sb.writeln('```http');
-      headers.forEach((k, v) => sb.writeln('$k: $v'));
+      SecretRedactor.headers(headers)
+          .forEach((k, v) => sb.writeln('\$k: \$v'));
       sb.writeln('```');
     }
     sb.writeln();
@@ -238,16 +242,19 @@ class RequestLog {
     return '${minutes}m ${remSeconds}s';
   }
 
+  /// Builds a copy-pasteable cURL command. Auth headers are redacted, so the
+  /// snippet documents the request shape but must have real credentials filled
+  /// in before it will run.
   String _buildCurl() {
     final sb = StringBuffer();
-    final fullUrl = _urlWithQuery();
+    final fullUrl = SecretRedactor.text(_urlWithQuery());
     sb.write("curl -X $requestMethod '$fullUrl'");
-    headers.forEach((k, v) {
+    SecretRedactor.headers(headers).forEach((k, v) {
       sb.write(" \\\n  -H '$k: $v'");
     });
     if (_hasBody(requestBody)) {
       final bodyStr = requestBody is String
-          ? requestBody as String
+          ? SecretRedactor.jsonString(requestBody as String)
           : _prettyJson(requestBody);
       final escaped = bodyStr.replaceAll("'", r"'\''");
       sb.write(" \\\n  -d '$escaped'");
@@ -273,20 +280,24 @@ class RequestLog {
     return true;
   }
 
+  /// Renders JSON for display. Everything here is human-facing, so secrets
+  /// are scrubbed on the way out; the resend metadata block bypasses this.
   String _prettyJson(dynamic data) {
     if (data == null) return '{}';
     if (data is String) {
       try {
         final decoded = jsonDecode(data);
-        return const JsonEncoder.withIndent('  ').convert(decoded);
+        return const JsonEncoder.withIndent('  ')
+            .convert(SecretRedactor.json(decoded));
       } catch (_) {
-        return data;
+        return SecretRedactor.text(data);
       }
     }
     try {
-      return const JsonEncoder.withIndent('  ').convert(data);
+      return const JsonEncoder.withIndent('  ')
+          .convert(SecretRedactor.json(data));
     } catch (_) {
-      return data.toString();
+      return SecretRedactor.text(data.toString());
     }
   }
 }

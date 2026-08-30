@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -7,9 +8,11 @@ import '../../core/auth/token_session.dart';
 import '../../core/generation/code_emitter.dart';
 import '../../core/generation/pubspec_inspector.dart';
 import '../../core/logger/console_logger.dart';
+import '../../core/logger/stderr_logger.dart';
 import '../../core/logger/logger.dart';
 import '../../core/models/api_endpoint.dart';
 import '../../core/models/api_source_config.dart';
+import '../../core/models/endpoint_report.dart';
 import '../../core/models/endpoint_tree.dart';
 import '../../core/models/login_config.dart';
 import '../../core/models/response_definition.dart';
@@ -74,6 +77,13 @@ class GenerateCommand extends Command {
       ..addFlag('dry-run',
           help: 'Print what would be generated without writing any files',
           negatable: false,
+          defaultsTo: false)
+      ..addFlag('json',
+          help: 'Emit a machine-readable JSON report of each endpoint\n'
+              '(shape, params, response schema and sample) instead of\n'
+              'human-facing logs. Implies --dry-run: no files are written.\n'
+              'Secrets are redacted and long arrays truncated.',
+          negatable: false,
           defaultsTo: false);
   }
 
@@ -113,7 +123,10 @@ class GenerateCommand extends Command {
   }
 
   Future<void> _runWithFlags() async {
-    final Logger logger = ConsoleLogger();
+    final jsonMode = argResults!['json'] as bool;
+    // In --json mode stdout carries the JSON document, so every diagnostic
+    // goes to stderr instead.
+    final Logger logger = jsonMode ? const StderrLogger() : ConsoleLogger();
     final sourceType = argResults!['source'] as String? ?? 'postman';
     final configPath = argResults!['config'] as String;
     final rootOutputDir = argResults!['output'] as String;
@@ -187,7 +200,7 @@ class GenerateCommand extends Command {
       selectedEndpoints = selected;
     }
 
-    if (dryRun) {
+    if (dryRun && !jsonMode) {
       logger.i('Dry run — would generate ${selectedEndpoints.length} files:');
       for (final endpoint in selectedEndpoints) {
         final fileName = generateAction
@@ -259,13 +272,21 @@ class GenerateCommand extends Command {
       }
 
       final logFileName = endpoint.fileName.replaceAll('.dart', '');
-      if (result.log != null) {
+      // --json is a read-only probe: report the shape, touch nothing on disk.
+      if (result.log != null && !jsonMode) {
         result.log!.writeToFile(logsDir, logFileName);
       }
 
       if (result.log != null &&
           result.log!.statusCode != null &&
           (result.log!.statusCode! < 200 || result.log!.statusCode! >= 300)) {
+        if (jsonMode) {
+          // Keep the endpoint in the report — a non-2xx body is still shape
+          // information, and the status tells the caller why it looks odd.
+          logger.w('${endpoint.name} returned ${result.log!.statusCode}');
+          endpointResponses[endpoint] = result.response;
+          continue;
+        }
         final logPath = '${Directory.current.path}/$logsDir/$logFileName.md';
         // Use full path — most terminals make it clickable
         logger.e(
@@ -274,6 +295,12 @@ class GenerateCommand extends Command {
       }
 
       endpointResponses[endpoint] = result.response;
+    }
+
+    if (jsonMode) {
+      _emitJson(selectedEndpoints, endpointResponses, outputDir,
+          generateAction: generateAction);
+      return;
     }
 
     final generated = emitter.emitBatch(
@@ -285,6 +312,31 @@ class GenerateCommand extends Command {
     final failed = selectedEndpoints.length - generated;
     logger.i(
         'Done! Generated $generated files${failed > 0 ? ', $failed failed' : ''} in $outputDir');
+  }
+
+  /// Writes the machine-readable report to stdout as a single JSON document.
+  /// Nothing is written to disk — `--json` is a read-only probe.
+  void _emitJson(
+    List<ApiEndpoint> endpoints,
+    Map<ApiEndpoint, ResponseDefinition?> responses,
+    String outputDir, {
+    required bool generateAction,
+  }) {
+    final reports = endpoints.map((endpoint) {
+      final fileName = generateAction
+          ? endpoint.fileName
+          : endpoint.fileName.replaceAll('_action.dart', '_response.dart');
+      return EndpointReport.build(
+        endpoint,
+        response: responses[endpoint],
+        outputFile: '$outputDir/$fileName',
+      );
+    }).toList();
+
+    stdout.writeln(const JsonEncoder.withIndent('  ').convert({
+      'endpoint_count': reports.length,
+      'endpoints': reports,
+    }));
   }
 
   /// Date folder name (YYYY-MM-DD) used to group each run's output.

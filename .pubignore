@@ -21,3 +21,8 @@ example/.apigen/
 # Marketing / personal notes — not part of the package
 linkedin_post.md
 docs/
+
+# MCP server: a Node dev tool that lives in this repo but is not part of the
+# Dart package. Its node_modules alone is ~52 MB. A .pubignore replaces
+# .gitignore entirely for publishing, so these need listing here too.
+tools/

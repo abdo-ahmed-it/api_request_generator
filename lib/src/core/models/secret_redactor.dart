@@ -80,8 +80,26 @@ class SecretRedactor {
           ));
     }
     if (data is List) return data.map(json).toList();
-    if (data is String) return text(data);
+    if (data is String) return _embeddedJson(data);
     return data;
+  }
+
+  /// Redacts a string that may itself hold a JSON document.
+  ///
+  /// APIs echo request bodies back as raw strings (a `payload` column, a
+  /// webhook log, httpbin's `data`). Walking only parsed structures misses
+  /// those: the key holding them is not secret-named and its value is a
+  /// string, so a nested `access_token` inside would survive.
+  static dynamic _embeddedJson(String value) {
+    final trimmed = value.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        return jsonEncode(json(jsonDecode(trimmed)));
+      } catch (_) {
+        // not valid JSON after all
+      }
+    }
+    return text(value);
   }
 
   /// Redacts a JSON string, preserving it as a string. Falls back to

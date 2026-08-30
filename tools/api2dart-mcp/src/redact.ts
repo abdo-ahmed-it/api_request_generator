@@ -80,8 +80,29 @@ export function redactJson(data: unknown): unknown {
     }
     return out;
   }
-  if (typeof data === "string") return redactText(data);
+  if (typeof data === "string") return redactEmbeddedJson(data);
   return data;
+}
+
+/**
+ * Redacts a string that may itself hold a JSON document.
+ *
+ * APIs echo request bodies back as raw strings (httpbin's `data`, Laravel's
+ * `payload` columns, webhook logs). Walking only parsed structures misses
+ * those: the key holding them is not secret-named and its value is a string,
+ * so a nested `access_token` inside would survive. Parse it, redact it, and
+ * re-serialise; fall back to shape-based redaction when it isn't JSON.
+ */
+function redactEmbeddedJson(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      return JSON.stringify(redactJson(JSON.parse(trimmed)));
+    } catch {
+      // not valid JSON after all
+    }
+  }
+  return redactText(value);
 }
 
 /**

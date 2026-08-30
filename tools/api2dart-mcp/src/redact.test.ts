@@ -137,3 +137,18 @@ test("truncation must not swallow diagnostics", () => {
   assert.equal(rows.length, 3, "sampled data is still capped");
   assert.match(String(rows[2]), /total 5/);
 });
+
+test("secrets inside a JSON document held as a string are redacted", () => {
+  // Regression from a live httpbin fetch: the echoed request body came back
+  // under a non-secret key ("data") as an unparsed string, so a nested
+  // access_token inside it survived redaction.
+  const out = redactJson({ data: '{"access_token":"leaked","name":"Sara"}' }) as any;
+  assert.equal(out.data.includes("leaked"), false);
+  assert.match(out.data, /<redacted>/);
+  assert.match(out.data, /Sara/);
+});
+
+test("a plain string that merely starts with a brace is untouched", () => {
+  const out = redactJson({ note: "{not json" }) as any;
+  assert.equal(out.note, "{not json");
+});

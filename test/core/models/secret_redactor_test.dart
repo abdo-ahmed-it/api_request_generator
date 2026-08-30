@@ -91,6 +91,26 @@ void main() {
     });
   });
 
+  group('SecretRedactor JSON embedded in a string', () {
+    test('redacts secrets inside a JSON document held as a string', () {
+      // Real APIs echo request bodies back as a raw string (a `payload`
+      // column, a webhook log). Walking only parsed structures misses those.
+      final out = SecretRedactor.json({
+        'data': '{"access_token":"leaked","name":"Sara"}',
+      }) as Map;
+
+      expect(out['data'], isNot(contains('leaked')));
+      expect(out['data'], contains(SecretRedactor.placeholder));
+      // Non-secret content inside the embedded document survives.
+      expect(out['data'], contains('Sara'));
+    });
+
+    test('leaves a plain string that only looks like a brace alone', () {
+      final out = SecretRedactor.json({'note': '{not json'}) as Map;
+      expect(out['note'], '{not json');
+    });
+  });
+
   group('RequestLog rendering', () {
     RequestLog buildLog() => RequestLog(
           requestName: 'get_form_data',

@@ -144,7 +144,14 @@ server.registerTool(
 
       // The CLI redacts and truncates already; re-applying here keeps this
       // server correct on its own terms rather than trusting its input.
-      const safe = matched.map((e) => truncateArrays(redactJson(e)));
+      //
+      // Truncation is confined to the response payload. notes[] and headers[]
+      // are findings *about* the shape, not sampled data — capping them would
+      // hide the diagnostics this tool exists to deliver.
+      const safe = matched.map((e) => {
+        const redacted = redactJson(e) as Record<string, unknown>;
+        return { ...redacted, response: truncateArrays(redacted.response) };
+      });
       return JSON.stringify({ endpoint_count: safe.length, endpoints: safe }, null, 2);
     }),
 );

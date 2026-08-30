@@ -119,3 +119,21 @@ test("malformed json in a fence still cannot leak", () => {
   const md = ["```json", `{"broken": ${FAKE_SANCTUM}`, "```"].join("\n");
   assert.equal(redactMarkdown(md).includes(FAKE_SANCTUM), false);
 });
+
+test("truncation must not swallow diagnostics", () => {
+  // Regression: truncateArrays was applied to the whole report, capping
+  // notes[] at two entries and hiding 16 of 18 real findings.
+  const report = {
+    notes: Array.from({ length: 18 }, (_, i) => `note ${i}`),
+    headers: ["Authorization", "x-api-key", "Accept"],
+    response: { sample: { rows: [1, 2, 3, 4, 5] } },
+  };
+
+  const safe = { ...report, response: truncateArrays(report.response) };
+
+  assert.equal(safe.notes.length, 18, "notes must survive intact");
+  assert.equal(safe.headers.length, 3, "headers must survive intact");
+  const rows = (safe.response as any).sample.rows as unknown[];
+  assert.equal(rows.length, 3, "sampled data is still capped");
+  assert.match(String(rows[2]), /total 5/);
+});

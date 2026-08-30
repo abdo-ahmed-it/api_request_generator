@@ -8,6 +8,7 @@
 ///   GET  /api/preview?index=N
 ///   POST /api/try
 ///   POST /api/generate
+///   POST /api/relogin
 ///
 /// Kept as a Dart string constant so the package ships self-contained.
 const String indexHtml = r'''<!DOCTYPE html>
@@ -36,6 +37,12 @@ const String indexHtml = r'''<!DOCTYPE html>
   .top-meta{display:flex;gap:8px;margin-left:6px}
   .chip{background:var(--panel);border:1px solid var(--line);border-radius:999px;
     padding:4px 11px;font-size:12px;color:var(--muted)}.chip b{color:var(--accent)}
+  /* Token status: clickable, and colored by whether auth is currently healthy */
+  .chip.tok{cursor:pointer;font:inherit;font-size:12px;line-height:normal}
+  .chip.tok:hover{border-color:var(--accent)}
+  .chip.tok.ok b{color:var(--green)}
+  .chip.tok.bad{border-color:var(--red)}.chip.tok.bad b{color:var(--red)}
+  .chip.tok.none b{color:var(--muted)}
   .spacer{margin-left:auto}
   .btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);
     padding:8px 15px;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;transition:.15s}
@@ -233,6 +240,10 @@ const String indexHtml = r'''<!DOCTYPE html>
   .pick-item.up{color:var(--muted)}
   .pick-empty{color:var(--faint);text-align:center;padding:24px;font-size:13px}
   .pick-foot{display:flex;align-items:center;gap:12px;padding:13px 18px;border-top:1px solid var(--line)}
+  .tok-body{padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+  .tok-body input{background:var(--panel);border:1px solid var(--line);color:var(--ink);
+    border-radius:8px;padding:9px 11px;font-size:13px;font-family:monospace;width:100%}
+  .tok-body input:focus{border-color:var(--accent);outline:none}
   .pick-sel{flex:1;font-family:monospace;font-size:12px;color:var(--muted);word-break:break-all}
   .hidden{display:none!important}
 
@@ -428,6 +439,26 @@ const String indexHtml = r'''<!DOCTYPE html>
   </div>
 </div>
 
+<div class="pick-overlay hidden" id="tokOverlay">
+  <div class="pick">
+    <div class="pick-head">
+      <span class="pick-title">Auth token</span>
+      <button class="iconbtn" id="tokClose" title="Close">✕</button>
+    </div>
+    <div class="tok-body">
+      <div class="hint" id="tokHint"></div>
+      <input id="tokOtp" class="hidden" placeholder="OTP code">
+      <input id="tokPaste" placeholder="…or paste a token here">
+      <div class="hint" id="tokMsg"></div>
+    </div>
+    <div class="pick-foot">
+      <button class="btn" id="tokRelogin">Re-login now</button>
+      <span class="spacer"></span>
+      <button class="btn primary" id="tokUse">Use pasted token</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const $=(s,el=document)=>el.querySelector(s);
 const $$=(s,el=document)=>[...el.querySelectorAll(s)];
@@ -456,7 +487,10 @@ async function load(){
   $('#topMeta').innerHTML=
     `<span class="chip">Endpoints <b>${TREE.total}</b></span>`+
     `<span class="chip">Mode <b>${TREE.mode}</b></span>`+
-    `<span class="chip">Out <b>${esc(TREE.outputDir)}</b></span>`;
+    `<span class="chip">Out <b>${esc(TREE.outputDir)}</b></span>`+
+    `<button class="chip tok" id="tokChip" title="Auth token — click to refresh"></button>`;
+  renderTokenChip(TREE.hasToken?'ok':'none', TREE.token||'');
+  $('#tokChip').onclick=openTokenModal;
   // method filters
   $('#filters').innerHTML=METHODS.map(m=>`<span class="mf m-${m}" data-m="${m}">${m}</span>`).join('');
   $$('.mf').forEach(f=>f.onclick=()=>{const m=f.dataset.m;
@@ -1017,6 +1051,10 @@ function showGenResults(d){
   }else{
     const skipped=d.skipped||[];
     let h=`<h3>Generated ${d.generated.length}`+(skipped.length?`, skipped ${skipped.length}`:``)+`<button class="x">✕</button></h3>`;
+    // Auto re-login outcome, when it happened — otherwise the token silently
+    // changing mid-run would be invisible.
+    if(d.tokenRefreshed)h+=`<div class="gr-row"><span class="ok">↻</span><span>Token refreshed automatically mid-run</span></div>`;
+    if(d.authFailed)h+=`<div class="gr-row"><span class="bad">✗</span><span>Auth failed — re-login did not help. Check the saved credentials.</span></div>`;
     for(const g of d.generated)h+=`<div class="gr-row"><span class="ok">✓</span><span>${esc(g.file)}</span></div>`;
     for(const s of skipped)h+=`<div class="gr-row"><span class="bad">✗</span><span>${esc(s.name)}</span><span class="gr-sub">${esc(s.reason)}</span></div>`;
     if(Array.isArray(d.logs)&&d.logs.length)h+=`<details class="gr-logs"><summary>${d.logs.length} log lines</summary><pre>${esc(d.logs.join('\n'))}</pre></details>`;
@@ -1032,7 +1070,70 @@ function showGenResults(d){
     });
   }
   box.querySelector('.x').onclick=()=>box.classList.add('hidden');
+  // Keep the chip honest about what just happened to the token.
+  if(d.authFailed)renderTokenChip('bad',d.token||'');
+  else if(d.tokenRefreshed)renderTokenChip('ok',d.token||'');
 }
+
+// ---- auth token chip + modal ----
+// The web UI runs in its own isolate with a COPY of the token, so a refresh on
+// the terminal side isn't visible here until the next request. The chip makes
+// that state legible, and one click fixes a stale token.
+function renderTokenChip(state,masked){
+  const c=$('#tokChip');if(!c)return;
+  c.className='chip tok '+state;
+  const label=state==='none'?'none':(masked||'set');
+  c.innerHTML=`Token <b>${esc(label)}</b>`;
+  c.title=state==='bad'
+    ?'Token was rejected — click to re-login'
+    :(state==='none'?'No token — click to add one':'Auth token — click to refresh');
+}
+
+function openTokenModal(){
+  const hasLogin=!!(TREE&&TREE.hasLogin);
+  $('#tokHint').textContent=hasLogin
+    ?'Auto re-login is configured for this source. Re-login now, or paste a token.'
+    :'Auto re-login is not configured. Run `api2dart generate` in the terminal to set it up, or paste a token below.';
+  $('#tokRelogin').classList.toggle('hidden',!hasLogin);
+  $('#tokOtp').classList.add('hidden');
+  $('#tokMsg').textContent='';
+  $('#tokPaste').value='';
+  $('#tokOverlay').classList.remove('hidden');
+  $('#tokPaste').focus();
+}
+function closeTokenModal(){$('#tokOverlay').classList.add('hidden');}
+
+async function postRelogin(payload,btn){
+  const msg=$('#tokMsg');
+  const original=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Working…';}
+  try{
+    const d=await jpost('/api/relogin',payload);
+    if(d.ok){
+      renderTokenChip('ok',d.token||'');
+      if(TREE)TREE.hasToken=true;
+      msg.textContent='✓ Token updated.';
+      setTimeout(closeTokenModal,700);
+    }else{
+      msg.textContent='✗ '+(d.error||'Could not refresh the token.');
+      renderTokenChip('bad','');
+    }
+  }catch(e){msg.textContent='✗ '+String(e);}
+  finally{if(btn){btn.disabled=false;btn.textContent=original;}}
+}
+
+$('#tokClose').onclick=closeTokenModal;
+$('#tokOverlay').onclick=e=>{if(e.target===$('#tokOverlay'))closeTokenModal();};
+$('#tokRelogin').onclick=()=>{
+  const otp=$('#tokOtp').value.trim();
+  postRelogin(otp?{otp}:{},$('#tokRelogin'));
+};
+$('#tokUse').onclick=()=>{
+  const t=$('#tokPaste').value.trim();
+  if(!t){$('#tokMsg').textContent='Paste a token first.';return;}
+  postRelogin({token:t},$('#tokUse'));
+};
+$('#tokPaste').addEventListener('keydown',e=>{if(e.key==='Enter')$('#tokUse').click();});
 
 // keyboard: "/" focuses search, Ctrl/Cmd+Enter sends the current request
 document.addEventListener('keydown',e=>{

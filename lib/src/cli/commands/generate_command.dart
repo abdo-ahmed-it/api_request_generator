@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 
+import '../../core/auth/login_service.dart';
+import '../../core/auth/token_session.dart';
 import '../../core/generation/code_emitter.dart';
 import '../../core/generation/pubspec_inspector.dart';
 import '../../core/logger/console_logger.dart';
@@ -9,6 +11,7 @@ import '../../core/logger/logger.dart';
 import '../../core/models/api_endpoint.dart';
 import '../../core/models/api_source_config.dart';
 import '../../core/models/endpoint_tree.dart';
+import '../../core/models/login_config.dart';
 import '../../core/models/response_definition.dart';
 import '../../core/resolution/http_client.dart';
 import '../../core/resolution/response_resolver.dart';
@@ -201,6 +204,17 @@ class GenerateCommand extends Command {
     final resolver = ResponseResolver(httpClient: httpClient);
     final emitter = CodeEmitter(logger: logger);
 
+    // Non-interactive by design — this is the CI/flag path, so there are no
+    // prompts to fall back on. A stored login recipe (with a fixed OTP code,
+    // when the API needs one) still refreshes an expired token unattended.
+    final session = TokenSession(
+      token: token,
+      logger: logger,
+      config: LoginConfigStore.load(tree.sourceName),
+      baseUrl: baseUrl,
+      service: LoginService(httpClient: httpClient, logger: logger),
+    );
+
     final resolvedBaseUrl = baseUrl ?? '';
     final endpointResponses = <ApiEndpoint, ResponseDefinition?>{};
 
@@ -208,15 +222,40 @@ class GenerateCommand extends Command {
       logger.i(
           'Processing ${endpoint.method.name} ${endpoint.path}...');
 
-      ResolveResult result;
-      try {
-        result = await resolver.resolve(
-          endpoint,
-          baseUrl: resolvedBaseUrl,
-          token: token,
-        );
-      } catch (e) {
-        result = ResolveResult(response: ResponseDefinition.empty);
+      Future<ResolveResult> attempt() async {
+        try {
+          return await resolver.resolve(
+            endpoint,
+            baseUrl: resolvedBaseUrl,
+            token: session.token,
+          );
+        } catch (e) {
+          return ResolveResult(response: ResponseDefinition.empty);
+        }
+      }
+
+      var result = await attempt();
+
+      // Auto re-login: mint a fresh token and retry this endpoint once. Skipped
+      // for the login endpoints themselves — they legitimately 401 on the
+      // spec's placeholder credentials, and re-authenticating can't fix that.
+      final status = result.log?.statusCode;
+      final isLoginEndpoint =
+          session.config?.matchesLoginStep(endpoint.path) ?? false;
+      if ((status == 401 || status == 403) &&
+          !isLoginEndpoint &&
+          session.canRefresh) {
+        logger.w('↻ ${endpoint.name}: token rejected ($status) — '
+            're-authenticating…');
+        if (await session.refresh(reason: '$status on ${endpoint.name}')) {
+          result = await attempt();
+          final retried = result.log?.statusCode;
+          if (retried == 401 || retried == 403) {
+            session.markRefreshIneffective();
+            logger.w('  Still $retried with a fresh token — '
+                'treating this as a permissions issue, not expiry.');
+          }
+        }
       }
 
       final logFileName = endpoint.fileName.replaceAll('.dart', '');

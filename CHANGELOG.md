@@ -1,3 +1,39 @@
+## 0.7.0
+
+### Added
+- **Auto re-login** — when the auth token expires, `api2dart` now mints a fresh
+  one by calling your API's own login endpoint, instead of failing every
+  request until you paste a new token into Apidog and re-run the wizard.
+  - **Setup from the wizard**: pick your login endpoint straight out of the
+    parsed tree — the method and body field names come from the spec, so you
+    only fill in the values. Offered up front (opt-in, defaults to *no*) and
+    again automatically the first time a 401 actually lands.
+  - **Two login shapes**: single-step (e.g. `email` + `password`), and
+    two-step OTP (request the code, then verify it). Store a fixed OTP code
+    (e.g. `1111`) and the whole cycle runs unattended; leave it empty to be
+    asked each time.
+  - **Mid-run recovery**: a 401/403 pauses the run, re-authenticates, and
+    retries the *same* endpoint once before continuing with the new token —
+    nothing gets skipped just because the token aged out mid-batch.
+  - **Bounded by design**: a failed login, or a fresh token that still gets
+    rejected, stops further attempts for the rest of the run. A 50-endpoint run
+    costs at most one wasted login, and a 401 that's really a permissions error
+    is reported as such instead of being retried forever.
+  - **Web UI**: a token chip in the top bar shows whether auth is healthy;
+    click it to re-login or paste a token. Generate results now report when the
+    token was refreshed mid-run, or when auth failed outright.
+  - **CI-friendly**: `generate` with flags uses the same stored recipe with no
+    prompts, so an expired token no longer breaks non-interactive runs.
+  - **Credentials** are stored in `.api2dart/config.yaml`, namespaced per
+    source. The wizard warns before collecting them, adds `.api2dart/` to your
+    `.gitignore`, and never echoes passwords as you type. `api2dart reset` now
+    clears them.
+
+### Fixed
+- `ConfigStorage` resolved `.api2dart/config.yaml` once and cached it for the
+  process lifetime, so any later change of working directory kept reading and
+  writing the original project's config.
+
 ## 0.6.0
 
 ### Added

@@ -2,13 +2,17 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../../core/auth/login_service.dart';
+import '../../core/auth/token_session.dart';
 import '../../core/generation/code_emitter.dart';
 import '../../core/generation/pubspec_inspector.dart';
 import '../../core/logger/console_logger.dart';
 import '../../core/logger/logger.dart';
 import '../../core/models/api_endpoint.dart';
 import '../../core/models/api_source_config.dart';
+import '../../core/models/body_definition.dart';
 import '../../core/models/endpoint_tree.dart';
+import '../../core/models/login_config.dart';
 import '../../core/models/response_definition.dart';
 import '../../core/resolution/http_client.dart';
 import '../../core/resolution/response_resolver.dart';
@@ -17,6 +21,7 @@ import '../../core/server/browser_token_capture.dart';
 import '../../core/sources/api_fetchers/apidog_fetcher.dart';
 import '../../core/sources/api_fetchers/config_storage.dart';
 import '../../core/sources/api_fetchers/postman_fetcher.dart';
+import '../../core/sources/gitignore_guard.dart';
 import '../../core/sources/openapi_source.dart';
 import '../../core/sources/postman_source.dart';
 import '../../core/sources/url_variable_resolver.dart';
@@ -27,6 +32,10 @@ import '../ui/terminal_utils.dart';
 
 class GenerateWizard {
   final Logger _logger;
+
+  /// Whether auto re-login setup has already been offered this run. Declining
+  /// must not re-ask once per remaining endpoint.
+  bool _offeredLoginSetup = false;
 
   GenerateWizard({Logger? logger}) : _logger = logger ?? ConsoleLogger();
 
@@ -85,9 +94,43 @@ class GenerateWizard {
     }
 
     if (token == null || token.isEmpty) {
-      token = promptInput(
-        message: 'Auth token (leave empty to skip)',
-      );
+      // A token minted by a previous run's auto re-login beats asking again.
+      final lastToken = ConfigStorage.get(kLastTokenKey);
+      if (lastToken != null && lastToken.isNotEmpty) {
+        token = lastToken;
+        _logger.i('✓ Reusing the last refreshed token '
+            '(${TokenSession.mask(token)})');
+      } else {
+        token = promptInput(
+          message: 'Auth token (leave empty to skip)',
+        );
+      }
+    }
+
+    // Owns the token for the whole run. Mutable and shared by reference, so a
+    // mid-run re-login stays visible across every select→generate cycle below.
+    final session = _buildSession(
+      token: token,
+      tree: tree,
+      baseUrl: baseUrl,
+    );
+
+    // Opt-in offer up front. Declining costs nothing — the same offer comes
+    // back automatically the first time a 401 actually lands.
+    if (session.config == null &&
+        stdin.hasTerminal &&
+        token != null &&
+        token.isNotEmpty) {
+      _offeredLoginSetup = true;
+      stdout.writeln('');
+      if (promptConfirm(
+        message: 'Set up auto re-login? '
+            '(recovers on its own when this token expires)',
+        defaultValue: false,
+      )) {
+        final config = await _setupLogin(tree, baseUrl);
+        if (config != null) session.applyConfig(config);
+      }
     }
 
     stdout.writeln('');
@@ -127,7 +170,8 @@ class GenerateWizard {
       await _step3Generate(
         endpoints: selected,
         baseUrl: baseUrl ?? '',
-        token: token,
+        session: session,
+        tree: tree,
       );
 
       // Deselect generated endpoints but keep tree state
@@ -751,7 +795,8 @@ class GenerateWizard {
   Future<void> _step3Generate({
     required List<ApiEndpoint> endpoints,
     required String baseUrl,
-    String? token,
+    required TokenSession session,
+    required EndpointTree tree,
   }) async {
     final generateAction = PubspecInspector.hasApiRequestDependency();
     final rootOutputDir = 'api2dart';
@@ -777,15 +822,52 @@ class GenerateWizard {
       // front; use the per-endpoint base override when present.
       final resolvedBaseUrl = cleanEndpoint.baseUrlOverride ?? baseUrl;
 
-      ResolveResult result;
-      try {
-        result = await resolver.resolve(
-          cleanEndpoint,
-          baseUrl: resolvedBaseUrl,
-          token: token,
-        );
-      } catch (e) {
-        result = ResolveResult(response: ResponseDefinition.empty);
+      Future<ResolveResult> attempt() async {
+        try {
+          return await resolver.resolve(
+            cleanEndpoint,
+            baseUrl: resolvedBaseUrl,
+            token: session.token,
+          );
+        } catch (e) {
+          return ResolveResult(response: ResponseDefinition.empty);
+        }
+      }
+
+      var result = await attempt();
+
+      // ── Auto re-login ───────────────────────────────────────────────────
+      // An expired token would otherwise fail every remaining endpoint. Mint a
+      // fresh one and retry this endpoint exactly once — `attempt()` runs at
+      // most twice by construction, so there's no counter to get wrong.
+      // Skipped for the login endpoint itself: generating it legitimately 401s
+      // on the spec's placeholder credentials, and re-logging in can't help.
+      if (_isAuthFailure(result) && !_isLoginEndpoint(cleanEndpoint, session)) {
+        if (!_offeredLoginSetup && !session.hasLogin) {
+          // First 401 with nothing configured — this is the moment the pain is
+          // real, so offer setup right here rather than burying it in a flag.
+          // Latched: declining must not re-ask once per remaining endpoint.
+          _offeredLoginSetup = true;
+          await _offerLoginSetupOnFailure(session, tree, baseUrl);
+        }
+
+        if (session.canRefresh) {
+          _logger.w('↻ ${cleanEndpoint.name}: token rejected '
+              '(${result.log?.statusCode}) — re-authenticating…');
+
+          if (await session.refresh(reason: '${result.log?.statusCode} on '
+              '${cleanEndpoint.name}')) {
+            result = await attempt();
+
+            if (_isAuthFailure(result)) {
+              // A brand-new token still gets rejected, so this was never a
+              // stale-token problem. Stop re-logging in for the rest of the run.
+              session.markRefreshIneffective();
+              _logger.w('  Still ${result.log?.statusCode} with a fresh token — '
+                  'treating this as a permissions issue, not expiry.');
+            }
+          }
+        }
       }
 
       // Write log file for every request (flat — no subfolders)
@@ -819,6 +901,326 @@ class GenerateWizard {
     stdout.writeln('');
     _logger.i(
         '✅ Done! Generated $generated files${failed > 0 ? ', $failed failed' : ''} in $outputDir');
+  }
+
+  // ── Auto re-login ─────────────────────────────────────────────────────
+
+  /// Whether a resolved response failed because of auth.
+  ///
+  /// Kept as its own predicate so the "expired token" signal has a single
+  /// definition — some APIs answer 200 with an error flag in the body, and
+  /// that variant would be added here.
+  bool _isAuthFailure(ResolveResult r) {
+    final status = r.log?.statusCode;
+    return status == 401 || status == 403;
+  }
+
+  /// True when [ep] is one of the configured login steps.
+  ///
+  /// Generating the login endpoint itself legitimately 401s (the spec ships
+  /// placeholder credentials), and re-authenticating can't fix that — so skip
+  /// the hook rather than burn a login call on it.
+  bool _isLoginEndpoint(ApiEndpoint ep, TokenSession session) =>
+      session.config?.matchesLoginStep(ep.path) ?? false;
+
+  /// Builds the run's [TokenSession], wiring interactive fallbacks only when
+  /// there's actually a terminal to prompt on.
+  TokenSession _buildSession({
+    required String? token,
+    required EndpointTree tree,
+    required String? baseUrl,
+  }) {
+    final config = LoginConfigStore.load(tree.sourceName);
+    if (config != null) {
+      _logger.i('✓ Auto re-login is configured '
+          '(${config.steps.length} step${config.steps.length > 1 ? 's' : ''})');
+    }
+
+    final interactive = stdin.hasTerminal;
+    return TokenSession(
+      token: token,
+      logger: _logger,
+      config: config,
+      baseUrl: baseUrl,
+      service: LoginService(
+        httpClient: ApiHttpClient(logger: _logger),
+        logger: _logger,
+      ),
+      promptForToken: interactive
+          ? () async => promptInput(message: 'Paste a fresh token')
+          : null,
+      promptForOtp:
+          interactive ? () async => promptInput(message: 'OTP code') : null,
+    );
+  }
+
+  /// Offers to configure auto re-login the first time a 401 actually bites.
+  Future<void> _offerLoginSetupOnFailure(
+    TokenSession session,
+    EndpointTree tree,
+    String? baseUrl,
+  ) async {
+    if (!stdin.hasTerminal) return;
+
+    stdout.writeln('');
+    _logger.w('The auth token looks expired.');
+    final wants = promptConfirm(
+      message: 'Set up auto re-login so this fixes itself next time?',
+      defaultValue: true,
+    );
+    if (!wants) return;
+
+    final config = await _setupLogin(tree, baseUrl);
+    if (config != null) session.applyConfig(config);
+  }
+
+  /// Interactive setup for the auto re-login recipe.
+  ///
+  /// Picks the login endpoint out of the already-parsed tree so the method and
+  /// body field names come from the spec instead of being retyped, then proves
+  /// the recipe works before saving it.
+  Future<LoginConfig?> _setupLogin(EndpointTree tree, String? baseUrl) async {
+    stdout.writeln('');
+    stdout.writeln(TerminalUtils.bold('  Auto re-login setup'));
+
+    final kindIndex = promptSelect(
+      message: 'How does login work?',
+      options: [
+        'Single step (e.g. email + password)',
+        'Two steps with OTP (request a code, then verify it)',
+      ],
+    );
+    if (kindIndex == -1) return null;
+
+    // Warn BEFORE collecting anything, so backing out costs nothing.
+    stdout.writeln('');
+    _logger.w('Your credentials will be stored as plain text in '
+        '.api2dart/config.yaml');
+    stdout.writeln(TerminalUtils.gray(
+        '  (this project only, never uploaded anywhere). '
+        'Use development accounts.'));
+    if (!promptConfirm(message: 'Continue?', defaultValue: false)) return null;
+
+    final steps = <LoginStep>[];
+
+    final first = await _buildLoginStep(
+      tree: tree,
+      baseUrl: baseUrl,
+      title: kindIndex == 0 ? 'Login request' : 'Step 1 — request the OTP',
+      askForOtpField: false,
+    );
+    if (first == null) return null;
+    steps.add(first);
+
+    String? fixedOtpCode;
+    if (kindIndex == 1) {
+      final second = await _buildLoginStep(
+        tree: tree,
+        baseUrl: baseUrl,
+        title: 'Step 2 — verify the OTP',
+        askForOtpField: true,
+      );
+      if (second == null) return null;
+      steps.add(second);
+
+      stdout.writeln('');
+      fixedOtpCode = promptInput(
+        message: 'Fixed OTP code for this environment '
+            '(leave empty to be asked each time)',
+        hint: 'e.g. 1111',
+      );
+      if (fixedOtpCode != null && fixedOtpCode.isEmpty) fixedOtpCode = null;
+    }
+
+    // Verify before saving — a recipe that has never run isn't worth keeping.
+    stdout.writeln('');
+    _logger.i('Trying it out…');
+    final draft = LoginConfig(steps: steps, fixedOtpCode: fixedOtpCode);
+    final service = LoginService(
+      httpClient: ApiHttpClient(logger: _logger),
+      logger: _logger,
+    );
+
+    var otpCode = fixedOtpCode;
+    if (draft.needsOtp && (otpCode == null || otpCode.isEmpty)) {
+      otpCode = promptInput(message: 'OTP code (to test with)');
+    }
+
+    final result = await service.login(draft, baseUrl: baseUrl, otpCode: otpCode);
+    if (!result.isSuccess) {
+      _logger.e('✗ Test login failed: ${result.error}');
+      _logger.w('Not saving — fix the details and try again next run.');
+      return null;
+    }
+
+    // Pin down where the token actually was, so later runs don't re-guess.
+    final config = draft.copyWith(tokenPath: result.tokenPath);
+    _logger.i('✓ Login works — got a token '
+        '(${TokenSession.mask(result.token)})');
+    if (result.tokenPath != null) {
+      _logger.i('✓ Token found at "${result.tokenPath}"');
+    }
+
+    LoginConfigStore.save(tree.sourceName, config);
+    _reportGitignore();
+    _logger.i('✓ Saved. Expired tokens will now refresh automatically.');
+    return config;
+  }
+
+  /// Collects one login step, deriving as much as possible from the spec.
+  Future<LoginStep?> _buildLoginStep({
+    required EndpointTree tree,
+    required String? baseUrl,
+    required String title,
+    required bool askForOtpField,
+  }) async {
+    stdout.writeln('');
+    stdout.writeln(TerminalUtils.bold('  $title'));
+
+    // Surface likely auth endpoints first — the login route is almost always
+    // already in the parsed tree.
+    final all = tree.allEndpoints;
+    final candidates = all
+        .where((e) => RegExp(r'login|signin|sign-in|auth|otp|verify',
+                caseSensitive: false)
+            .hasMatch('${e.path} ${e.name}'))
+        .toList();
+
+    final options = [
+      ...candidates.map((e) => '${e.method.name} ${e.path}'),
+      'Type a URL manually',
+    ];
+    final pick = promptSelect(message: 'Which endpoint?', options: options);
+    if (pick == -1) return null;
+
+    String url;
+    HttpMethod method;
+    var bodyFormat = LoginBodyFormat.json;
+    var fieldNames = <String>[];
+    var headers = <String, String>{};
+
+    if (pick < candidates.length) {
+      final ep = candidates[pick];
+      url = ep.path;
+      method = ep.method;
+      headers = _safeHeaders(ep.headers);
+      final derived = _deriveBodyFields(ep.body);
+      fieldNames = derived.names;
+      bodyFormat = derived.format;
+    } else {
+      final typed = promptInput(
+        message: 'Login URL (path or full URL)',
+        hint: 'e.g. /auth/login',
+      );
+      if (typed == null || typed.isEmpty) return null;
+      url = typed;
+      method = HttpMethod.POST;
+    }
+
+    // Nothing usable in the spec — ask for the field names directly.
+    if (fieldNames.isEmpty) {
+      final raw = promptInput(
+        message: 'Body field names, comma-separated',
+        hint: askForOtpField ? 'e.g. phone,code' : 'e.g. email,password',
+      );
+      fieldNames = (raw ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .where((s) => s.isNotEmpty)
+          .toList();
+    }
+
+    if (fieldNames.isEmpty) {
+      _logger.e('No fields given — cannot build a login request.');
+      return null;
+    }
+
+    // The OTP value is supplied per-call, so its field is named, not filled.
+    String? otpField;
+    if (askForOtpField) {
+      final guess = fieldNames.indexWhere((f) =>
+          RegExp(r'otp|code|pin', caseSensitive: false).hasMatch(f));
+      final otpPick = promptSelect(
+        message: 'Which field carries the OTP code?',
+        options: fieldNames,
+        defaultIndex: guess >= 0 ? guess : 0,
+      );
+      if (otpPick == -1) return null;
+      otpField = fieldNames[otpPick];
+    }
+
+    stdout.writeln('');
+    final fields = <String, String>{};
+    for (final name in fieldNames) {
+      if (name == otpField) continue; // filled at login time
+      final isSecret =
+          RegExp(r'pass|pwd|secret|pin', caseSensitive: false).hasMatch(name);
+      final value = isSecret
+          ? promptPassword(message: name)
+          : promptInput(message: name);
+      if (value != null && value.isNotEmpty) fields[name] = value;
+    }
+
+    return LoginStep(
+      url: url,
+      method: method,
+      fields: fields,
+      bodyFormat: bodyFormat,
+      headers: headers,
+      otpField: otpField,
+    );
+  }
+
+  /// Extracts body field names and encoding from a spec-derived body.
+  ({List<String> names, LoginBodyFormat format}) _deriveBodyFields(
+      BodyDefinition? body) {
+    if (body == null) return (names: <String>[], format: LoginBodyFormat.json);
+
+    if (body.hasFormFields) {
+      return (
+        names: body.formFields!.keys.toList(),
+        format: LoginBodyFormat.form
+      );
+    }
+
+    if (body.hasRawBody) {
+      try {
+        final decoded = jsonDecode(body.rawBody!);
+        if (decoded is Map) {
+          return (
+            names: decoded.keys.map((k) => k.toString()).toList(),
+            format: LoginBodyFormat.json
+          );
+        }
+      } catch (_) {/* not JSON — fall through */}
+    }
+
+    return (names: <String>[], format: LoginBodyFormat.json);
+  }
+
+  /// Drops headers that must not ride along on a login request.
+  ///
+  /// A spec-derived `Authorization: Bearer {{token}}` would send the very token
+  /// we're replacing, which is exactly what breaks the refresh.
+  Map<String, String> _safeHeaders(Map<String, String> headers) {
+    const banned = {'authorization', 'cookie'};
+    return {
+      for (final e in headers.entries)
+        if (!banned.contains(e.key.toLowerCase())) e.key: e.value,
+    };
+  }
+
+  void _reportGitignore() {
+    switch (GitignoreGuard.ensureIgnored()) {
+      case GitignoreOutcome.added:
+        _logger.i('✓ Added .api2dart/ to .gitignore');
+      case GitignoreOutcome.alreadyIgnored:
+        _logger.i('✓ .api2dart/ is already git-ignored');
+      case GitignoreOutcome.notAGitRepo:
+        break; // nothing to protect
+      case GitignoreOutcome.failed:
+        _logger.w('⚠ Could not update .gitignore — add `.api2dart/` yourself.');
+    }
   }
 }
 

@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import '../auth/login_service.dart';
+import '../auth/token_session.dart';
 import '../generation/code_emitter.dart';
 import '../generation/pubspec_inspector.dart';
 import '../logger/logger.dart';
@@ -11,6 +13,7 @@ import '../models/api_folder.dart';
 import '../models/auth_definition.dart';
 import '../models/body_definition.dart';
 import '../models/endpoint_tree.dart';
+import '../models/login_config.dart';
 import '../models/response_definition.dart';
 import '../resolution/http_client.dart';
 import '../resolution/response_resolver.dart';
@@ -76,9 +79,15 @@ class ApiWebServer {
   final String outputDir;
   final String logsDir;
   final String? baseUrl;
-  final String? token;
   final bool generateAction;
   final Logger logger;
+
+  /// Owns the live token and knows how to mint a new one when it expires.
+  final TokenSession session;
+
+  /// The token to send with outgoing requests. Reads through the session so a
+  /// mid-run refresh takes effect without touching the call sites.
+  String? get token => session.token;
 
   /// Stable, ordered list matching the indexes handed to the browser.
   final List<ApiEndpoint> _ordered;
@@ -103,15 +112,29 @@ class ApiWebServer {
     return 'output_overrides.${src.isEmpty ? 'default' : src}';
   }
 
+  /// [token] seeds the session; pass [session] instead to share one with a
+  /// caller that already owns it (the in-process `serve` command does).
   ApiWebServer({
     required this.tree,
     required this.outputDir,
     required this.logsDir,
     required this.baseUrl,
-    required this.token,
     required this.generateAction,
     required this.logger,
-  })  : _ordered = tree.allEndpoints,
+    String? token,
+    TokenSession? session,
+  })  : session = session ??
+            TokenSession(
+              token: token,
+              logger: logger,
+              config: LoginConfigStore.load(tree.sourceName),
+              baseUrl: baseUrl,
+              service: LoginService(
+                httpClient: ApiHttpClient(logger: logger),
+                logger: logger,
+              ),
+            ),
+        _ordered = tree.allEndpoints,
         _folderPaths = _buildFolderPaths(tree);
 
   /// Lazily loads saved overrides from config (JSON string under one key).
@@ -308,6 +331,12 @@ class ApiWebServer {
       return;
     }
 
+    if (method == 'POST' && path == '/api/relogin') {
+      final body = await utf8.decoder.bind(req).join();
+      await _handleRelogin(req, body);
+      return;
+    }
+
     _json(req, 404, {'error': 'Not found: $method $path'});
   }
 
@@ -473,10 +502,70 @@ class ApiWebServer {
     });
   }
 
+  /// Refreshes the auth token on demand — the token chip's click handler.
+  ///
+  /// Accepts `{}`, `{"otp": "1111"}` to supply a code the config doesn't carry,
+  /// or `{"token": "..."}` to paste one directly. Always answers 200 with an
+  /// `ok` flag; a failed login is a normal outcome here, not a server error.
+  Future<void> _handleRelogin(HttpRequest req, String rawBody) async {
+    Map<String, dynamic> payload = const {};
+    if (rawBody.trim().isNotEmpty) {
+      try {
+        payload = jsonDecode(rawBody) as Map<String, dynamic>;
+      } catch (e) {
+        _json(req, 400, {'ok': false, 'error': 'Invalid request body: $e'});
+        return;
+      }
+    }
+
+    // A token pasted in the browser wins outright — no login needed.
+    final pasted = (payload['token'] as String?)?.trim();
+    if (pasted != null && pasted.isNotEmpty) {
+      session.adopt(pasted);
+      _json(req, 200, {
+        'ok': true,
+        'token': TokenSession.mask(session.token),
+        'source': 'pasted',
+      });
+      return;
+    }
+
+    if (!session.hasLogin) {
+      _json(req, 200, {
+        'ok': false,
+        'error': 'Auto re-login is not configured for this source. '
+            'Run `api2dart generate` in the terminal to set it up, '
+            'or paste a token here.',
+        'hasLogin': false,
+      });
+      return;
+    }
+
+    final otp = (payload['otp'] as String?)?.trim();
+    final ok = await session.refresh(
+      reason: 'manual refresh from the web UI',
+      otpCode: (otp != null && otp.isNotEmpty) ? otp : null,
+    );
+
+    _json(req, 200, {
+      'ok': ok,
+      if (ok) 'token': TokenSession.mask(session.token),
+      if (ok) 'source': 'login',
+      if (!ok)
+        'error': 'Re-login failed. Check the saved credentials '
+            '(or paste a token instead).',
+      'hasLogin': true,
+    });
+  }
+
   /// Sends a one-off request with the (possibly edited) values from the browser
   /// and returns the live response — the "Try it / Send" feature. Does NOT
   /// write any files.
   Future<void> _handleTry(HttpRequest req, String rawBody) async {
+    // The terminal may have refreshed the token in the other isolate; pick it
+    // up before sending anything with a stale one.
+    session.syncFromConfig();
+
     Map<String, dynamic> payload;
     try {
       payload = jsonDecode(rawBody) as Map<String, dynamic>;
@@ -579,6 +668,9 @@ class ApiWebServer {
       ...tree.folders.map(folderNode),
     ];
 
+    // Reflect a token the terminal may have refreshed since the page loaded.
+    session.syncFromConfig();
+
     return {
       'sourceName': tree.sourceName,
       'mode': generateAction ? 'action + response' : 'response-only',
@@ -586,6 +678,9 @@ class ApiWebServer {
       'baseUrl': baseUrl ?? '',
       'total': _ordered.length,
       'roots': roots,
+      'hasToken': token != null && token!.isNotEmpty,
+      'hasLogin': session.hasLogin,
+      'token': TokenSession.mask(token),
     };
   }
 
@@ -691,6 +786,12 @@ class ApiWebServer {
     final resolver = ResponseResolver(httpClient: httpClient);
     final emitter = CodeEmitter(logger: buffer);
 
+    // Pick up a token the terminal side may have refreshed, then route login
+    // progress into the buffer so "↻ Re-authenticating…" reaches the browser
+    // through the existing `logs` payload.
+    session.syncFromConfig();
+    session.attachLogger(buffer);
+
     final defaultBaseUrl = baseUrl ?? '';
     // Each resolved endpoint, paired with its response + effective output opts.
     final pending = <_PendingEmit>[];
@@ -704,15 +805,42 @@ class ApiWebServer {
       final resolvedBaseUrl = endpoint.baseUrlOverride ?? defaultBaseUrl;
       buffer.i('Processing ${endpoint.method.name} ${endpoint.path}...');
 
-      ResolveResult result;
-      try {
-        result = await resolver.resolve(
-          endpoint,
-          baseUrl: resolvedBaseUrl,
-          token: token,
-        );
-      } catch (e) {
-        result = ResolveResult(response: ResponseDefinition.empty);
+      Future<ResolveResult> attempt() async {
+        try {
+          return await resolver.resolve(
+            endpoint,
+            baseUrl: resolvedBaseUrl,
+            token: session.token,
+          );
+        } catch (e) {
+          return ResolveResult(response: ResponseDefinition.empty);
+        }
+      }
+
+      var result = await attempt();
+
+      // Auto re-login: an expired token would otherwise fail every remaining
+      // endpoint. Retry this one exactly once with a fresh token.
+      var status = result.log?.statusCode;
+      // Skip the hook for the login endpoints themselves: generating one
+      // legitimately 401s on the spec's placeholder credentials, and
+      // re-authenticating can't fix that.
+      final isLoginEndpoint =
+          session.config?.matchesLoginStep(endpoint.path) ?? false;
+      if ((status == 401 || status == 403) &&
+          !isLoginEndpoint &&
+          session.canRefresh) {
+        buffer.w('↻ ${endpoint.name}: token rejected ($status) — '
+            're-authenticating…');
+        if (await session.refresh(reason: '$status on ${endpoint.name}')) {
+          result = await attempt();
+          status = result.log?.statusCode;
+          if (status == 401 || status == 403) {
+            session.markRefreshIneffective();
+            buffer.w('  Still $status with a fresh token — '
+                'treating this as a permissions issue, not expiry.');
+          }
+        }
       }
 
       final logFileName = endpoint.fileName.replaceAll('.dart', '');
@@ -722,12 +850,12 @@ class ApiWebServer {
         logFile = '$logsDir/$logFileName.md';
       }
 
-      final status = result.log?.statusCode;
       if (status != null && (status < 200 || status >= 300)) {
         skipped.add({
           'name': endpoint.name,
           'reason': 'request failed ($status)',
           'logFile': logFile,
+          if (status == 401 || status == 403) 'kind': 'auth',
         });
         continue;
       }
@@ -760,7 +888,11 @@ class ApiWebServer {
       'logs': buffer.messages,
       'outputDir': outputDir,
       'logsDir': logsDir,
+      'tokenRefreshed': session.refreshed,
+      'authFailed': session.gaveUp,
+      'token': TokenSession.mask(session.token),
     });
+    session.clearRefreshedFlag();
   }
 
   void _json(HttpRequest req, int status, Object body) {

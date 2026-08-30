@@ -5,6 +5,7 @@ export 'src/core/models/api_source_config.dart';
 export 'src/core/models/auth_definition.dart';
 export 'src/core/models/body_definition.dart';
 export 'src/core/models/endpoint_tree.dart';
+export 'src/core/models/login_config.dart';
 export 'src/core/models/request_log.dart';
 export 'src/core/models/response_definition.dart';
 

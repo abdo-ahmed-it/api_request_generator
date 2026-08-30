@@ -5,8 +5,12 @@ import 'package:yaml/yaml.dart';
 
 /// Manages stored API keys and config in .api2dart/config.yaml (project root).
 class ConfigStorage {
-  static final String _configDir = p.join(Directory.current.path, '.api2dart');
-  static final String _configPath = p.join(_configDir, 'config.yaml');
+  // Resolved on every access, not cached in a `static final`: those are
+  // initialized once on first use and would freeze onto whatever the CWD
+  // happened to be then, so any later `Directory.current` change would keep
+  // reading and writing the original project's config.
+  static String get _configDir => p.join(Directory.current.path, '.api2dart');
+  static String get _configPath => p.join(_configDir, 'config.yaml');
 
   /// Gets a stored value by key path (e.g. 'postman.api_key').
   static String? get(String key) {

@@ -36,8 +36,13 @@ class HttpResult {
 
 class ApiHttpClient {
   final Logger _logger;
+  final http.Client _client;
 
-  ApiHttpClient({required Logger logger}) : _logger = logger;
+  /// [client] is a test seam — pass a mock to assert on outgoing requests
+  /// without hitting the network. Production callers omit it.
+  ApiHttpClient({required Logger logger, http.Client? client})
+      : _logger = logger,
+        _client = client ?? http.Client();
 
   Future<HttpResult?> request({
     required String url,
@@ -128,7 +133,7 @@ class ApiHttpClient {
   }) async {
     switch (method) {
       case HttpMethod.GET:
-        return http.get(uri, headers: headers);
+        return _client.get(uri, headers: headers);
       case HttpMethod.POST:
         return _requestWithBody('POST', uri, headers, body);
       case HttpMethod.PUT:
@@ -136,7 +141,7 @@ class ApiHttpClient {
       case HttpMethod.PATCH:
         return _requestWithBody('PATCH', uri, headers, body);
       case HttpMethod.DELETE:
-        return http.delete(uri, headers: headers);
+        return _client.delete(uri, headers: headers);
     }
   }
 
@@ -167,7 +172,7 @@ class ApiHttpClient {
           request.fields.addAll(body.formFields!);
         }
         // File handling would go here for real multipart uploads
-        final streamedResponse = await request.send();
+        final streamedResponse = await _client.send(request);
         return http.Response.fromStream(streamedResponse);
 
       case null:
@@ -184,18 +189,17 @@ class ApiHttpClient {
   }) async {
     switch (method) {
       case 'POST':
-        return http.post(uri,
+        return _client.post(uri,
             headers: headers, body: bodyString ?? bodyFields);
       case 'PUT':
-        return http.put(uri,
+        return _client.put(uri,
             headers: headers, body: bodyString ?? bodyFields);
       case 'PATCH':
-        return http.patch(uri,
+        return _client.patch(uri,
             headers: headers, body: bodyString ?? bodyFields);
       default:
-        return http.post(uri,
+        return _client.post(uri,
             headers: headers, body: bodyString ?? bodyFields);
     }
   }
-
 }

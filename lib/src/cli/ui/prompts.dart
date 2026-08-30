@@ -109,6 +109,58 @@ String? promptInput({
   return result;
 }
 
+/// Like [promptInput] but never echoes what's typed, and shows `••••••` in the
+/// confirmation line instead of the value.
+///
+/// Used for credentials during auto re-login setup: [promptInput] both echoes
+/// while typing and re-prints the value afterwards, which would leave a
+/// password sitting in terminal scrollback.
+///
+/// Falls back to a visible [promptInput] (with a warning) when there's no
+/// terminal to control echo on — `stdin.echoMode` throws in that case.
+String? promptPassword({required String message}) {
+  if (!stdin.hasTerminal) {
+    stdout.writeln(TerminalUtils.gray(
+        '  ⚠ No terminal — input will be visible as you type.'));
+    return promptInput(message: message);
+  }
+
+  stdout.write('${TerminalUtils.bold('? $message')}: ');
+
+  String? input;
+  final hadEcho = stdin.echoMode;
+  try {
+    stdin.echoMode = false;
+    input = stdin.readLineSync()?.trim();
+  } on StdinException {
+    // Some terminals refuse echo control; don't lose the prompt over it.
+    stdout.writeln('');
+    stdout.writeln(TerminalUtils.gray(
+        '  ⚠ Could not hide input on this terminal.'));
+    return promptInput(message: message);
+  } finally {
+    try {
+      stdin.echoMode = hadEcho;
+    } catch (_) {/* best-effort restore */}
+  }
+
+  // The user's Enter wasn't echoed, so close the line ourselves — otherwise
+  // the next write lands mid-line.
+  stdout.writeln('');
+  // Overwrite the prompt line with the masked confirmation.
+  stdout.write('\x1B[1A\x1B[2K');
+
+  if (input == null) {
+    stdout.writeln(
+        '${TerminalUtils.gray('✗')} $message: ${TerminalUtils.gray('cancelled')}');
+    return null;
+  }
+
+  final masked = input.isEmpty ? TerminalUtils.gray('(empty)') : '••••••';
+  stdout.writeln('${TerminalUtils.green('✓')} $message: $masked');
+  return input;
+}
+
 /// Interactive yes/no confirm prompt.
 /// Returns true for yes, false for no.
 bool promptConfirm({

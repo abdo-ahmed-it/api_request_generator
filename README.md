@@ -9,6 +9,7 @@ A Dart CLI tool (`api2dart`) that turns any API — **Postman**, **OpenAPI**, **
 - **Two ways to pick endpoints** — an interactive terminal tree, or a browser-based web UI
 - **Web UI** — search/filter endpoints, **try requests live**, preview the generated Dart, control output names/paths, and generate — all from the browser
 - **Smart response resolution** — live fetch → example → schema → fallback
+- **Auto re-login** — when your token expires mid-run, it logs in again through your own API (password or OTP) and carries on, instead of failing every request
 - **Two output modes** — Action + Response (when `api_request` is in your pubspec) or Response-only, auto-detected
 - **Markdown request logs** with a built-in `resend` to replay any request
 - **Settings persistence** — per project in `.api2dart/config.yaml`
@@ -124,7 +125,7 @@ Same source flags as `generate` (requires `-s` and `-c`), plus:
 ### `resend` / `reset` / `version` / `upgrade`
 
 - `api2dart resend <log-file.md>` — replay a logged request and rewrite the log in place
-- `api2dart reset [--all] [-y]` — clear saved settings (`--all` also removes tokens; `-y` skips the prompt)
+- `api2dart reset [--all] [-y]` — clear saved settings and login credentials (`--all` also removes API tokens; `-y` skips the prompt)
 - `api2dart version` (`-v`) — show version and check for updates
 - `api2dart upgrade [-f]` — self-update from pub.dev
 
@@ -191,6 +192,45 @@ Each endpoint's response is resolved in priority order:
 4. **Fallback** — `dynamic` (action mode) or skip the file (response-only)
 
 > Apidog projects that use URL-variable path prefixes are resolved automatically (the prefix is stripped and the correct per-endpoint base URL is applied) so terminal, web UI, and generated code all match.
+
+## Auto re-login
+
+Live fetch needs a valid token. When the one from your Apidog/Postman environment expires, every request returns 401 — and the usual fix is to open Apidog, paste a fresh token, and start over.
+
+Instead, let `api2dart` log in through your own API:
+
+```
+? Set up auto re-login? (recovers on its own when this token expires) (y/N) y
+? How does login work?  → Single step (e.g. email + password)
+? Which endpoint?       → POST /auth/login        ← picked from your endpoint tree
+? email                 → dev@example.com
+? password              → ••••••
+  Trying it out…
+  ✓ Login works — got a token (eyJh…4f2a)
+  ✓ Token found at "data.token"
+  ✓ Added .api2dart/ to .gitignore
+```
+
+The endpoint comes straight from the parsed tree, so the method and body field names are read from the spec — you only fill in values. The recipe is verified once before it's saved.
+
+From then on, an expired token repairs itself mid-run:
+
+```
+↻ GetProfile: token rejected (401) — re-authenticating…
+✓ Re-authenticated — got a fresh token.
+```
+
+The failing endpoint is retried once, then the run continues with the new token — nothing is skipped just because the token aged out halfway through.
+
+**OTP logins** are supported as a two-step flow (request the code → verify it). Store a fixed code for your dev environment and the whole cycle runs unattended; leave it blank to be prompted each time.
+
+**It won't spin.** If the login itself fails, or a brand-new token is still rejected (a permissions problem, not expiry), it stops trying for the rest of the run and says so. A 50-endpoint run costs at most one wasted login attempt.
+
+**In the web UI**, a token chip in the top bar shows whether auth is healthy — click it to re-login or paste a token. Generate results report when the token was refreshed mid-run.
+
+**In CI**, `generate` with flags uses the same saved recipe without prompting, so an expired token no longer breaks non-interactive runs.
+
+> **Credentials** are stored in plain text in `.api2dart/config.yaml`, namespaced per source. The wizard warns you before collecting them, adds `.api2dart/` to your `.gitignore`, and never echoes passwords as you type — but use development accounts. `api2dart reset` clears them.
 
 ## Requirements
 

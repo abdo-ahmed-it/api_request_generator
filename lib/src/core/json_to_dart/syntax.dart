@@ -51,17 +51,22 @@ class TypeDefinition {
             break;
           }
         }
+        // A heterogeneous list has no single element type. Keeping the first
+        // element's type here would emit `List<int>` for `[1, "two"]`, whose
+        // generated `.cast<int>()` throws at runtime. `dynamic` is the only
+        // sound widening from a single sample.
+        if (isAmbiguous) {
+          elemType = "dynamic";
+        }
       } else {
         elemType = "Null";
       }
-      return TypeDefinition(type,
-          subtype: elemType, isAmbiguous: isAmbiguous);
+      return TypeDefinition(type, subtype: elemType, isAmbiguous: isAmbiguous);
     }
     return TypeDefinition(type, isAmbiguous: isAmbiguous);
   }
 
-  TypeDefinition(this.name,
-      {this.subtype, this.isAmbiguous = false}) {
+  TypeDefinition(this.name, {this.subtype, this.isAmbiguous = false}) {
     if (subtype == null) {
       _isPrimitive = isPrimitiveType(name);
     } else {
@@ -112,7 +117,9 @@ class TypeDefinition {
     }
     if (isPrimitive) {
       if (name == "List") {
-        return "$fieldKey = json['$key'].cast<$subtype>();";
+        // Guarded like every other field type: a key that is absent or null in
+        // a later response would otherwise call .cast() on null.
+        return "$fieldKey = json['$key'] != null ? json['$key'].cast<$subtype>() : null;";
       }
       return "$fieldKey = json['$key'];";
     } else if (name == "List" && subtype == "DateTime") {
@@ -281,7 +288,8 @@ class ClassDefinition {
       sb.write(
           '$ns get $publicFieldName => $privateFieldName;\n\tset $publicFieldName(');
       _addTypeDef(f, sb);
-      sb.write('$ns $publicFieldName) => $privateFieldName = $publicFieldName;');
+      sb.write(
+          '$ns $publicFieldName) => $privateFieldName = $publicFieldName;');
       return sb.toString();
     }).join('\n');
   }

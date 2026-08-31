@@ -33,7 +33,12 @@ class GenerateCommand extends Command {
       ..addOption('source',
           abbr: 's',
           help: 'Source type. Required when --config is provided.',
-          allowed: ['postman', 'openapi', 'apidog', 'file'],
+          allowed: [
+            'postman',
+            'openapi',
+            'apidog',
+            'file'
+          ],
           allowedHelp: {
             'postman': 'Postman collection v2.1 (.json)',
             'openapi': 'OpenAPI 3.x spec (.yaml or .json)',
@@ -54,8 +59,7 @@ class GenerateCommand extends Command {
           abbr: 'b',
           help: 'Base URL of the API\n(e.g. https://api.example.com)')
       ..addOption('token',
-          abbr: 't',
-          help: 'Auth token used when fetching live responses')
+          abbr: 't', help: 'Auth token used when fetching live responses')
       ..addSeparator('Output mode:')
       ..addOption('mode',
           abbr: 'm',
@@ -108,7 +112,7 @@ class GenerateCommand extends Command {
   String get invocation => 'api2dart generate [arguments]';
 
   @override
-  void run() async {
+  Future<void> run() async {
     final configPath = argResults!['config'] as String?;
 
     // If no config provided, launch interactive wizard
@@ -180,16 +184,33 @@ class GenerateCommand extends Command {
       exit(0);
     }
 
-    logger.i(
-        'Found ${tree.totalEndpoints} endpoints in "${tree.sourceName}"');
+    logger.i('Found ${tree.totalEndpoints} endpoints in "${tree.sourceName}"');
 
     // 3. Select endpoints
     List<ApiEndpoint> selectedEndpoints;
 
-    if (noInteractive) {
+    // --json emits a machine-readable document, so there is nobody at the
+    // keyboard to drive the selector. Treat it as non-interactive the same way
+    // it already implies dry-run, rather than erroring on a documented command.
+    if (noInteractive || jsonMode) {
       selectedEndpoints = tree.allEndpoints;
       logger.i('Generating all ${selectedEndpoints.length} endpoints');
     } else {
+      // The selector reads raw keys, which needs a real terminal. Without this
+      // guard a CI run with -c but no --no-interactive reaches readKey() on a
+      // non-TTY and fails obscurely.
+      //
+      // stdin.hasTerminal alone is not enough: on macOS it reports true for
+      // `< /dev/null`, the most common CI redirection, so the selector would
+      // still block forever on readKey(). Requiring stdout to be a terminal
+      // too catches that case and every redirected form of either stream.
+      if (!stdin.hasTerminal || !stdout.hasTerminal) {
+        logger.e('The endpoint selector needs an interactive terminal.');
+        logger.e('Re-run with --no-interactive to generate every endpoint.');
+        exitCode = 64;
+        return;
+      }
+
       final selector = EndpointSelector(tree);
       final selected = selector.selectInteractively();
 
@@ -232,8 +253,7 @@ class GenerateCommand extends Command {
     final endpointResponses = <ApiEndpoint, ResponseDefinition?>{};
 
     for (final endpoint in selectedEndpoints) {
-      logger.i(
-          'Processing ${endpoint.method.name} ${endpoint.path}...');
+      logger.i('Processing ${endpoint.method.name} ${endpoint.path}...');
 
       Future<ResolveResult> attempt() async {
         try {
@@ -289,8 +309,7 @@ class GenerateCommand extends Command {
         }
         final logPath = '${Directory.current.path}/$logsDir/$logFileName.md';
         // Use full path — most terminals make it clickable
-        logger.e(
-            '✗ ${endpoint.name} (${result.log!.statusCode}) → $logPath');
+        logger.e('✗ ${endpoint.name} (${result.log!.statusCode}) → $logPath');
         continue;
       }
 

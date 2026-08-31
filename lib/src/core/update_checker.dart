@@ -35,12 +35,10 @@ class UpdateChecker {
     }
 
     try {
-      final response = await http
-          .get(
-            Uri.parse('https://pub.dev/api/packages/$packageName'),
-            headers: {'Accept': 'application/json'},
-          )
-          .timeout(networkTimeout);
+      final response = await http.get(
+        Uri.parse('https://pub.dev/api/packages/$packageName'),
+        headers: {'Accept': 'application/json'},
+      ).timeout(networkTimeout);
 
       if (response.statusCode != 200) return null;
 
@@ -57,20 +55,66 @@ class UpdateChecker {
   }
 
   /// Compares two semver strings. Returns true if [latest] > [current].
-  /// Handles pre-release suffixes by treating them as lower than the release.
+  /// A pre-release (`0.7.0-beta`) sorts below the matching release (`0.7.0`).
+  ///
+  /// Returns false when [current] is the `0.0.0` sentinel that
+  /// `packageVersion` falls back to when the bundled pubspec can't be located,
+  /// and when it can't be read as a version at all — every real release
+  /// compares newer than those, which would show a permanent bogus
+  /// "update available" notice. A nag we can't justify is worse than silence.
   static bool isNewer(String current, String latest) {
+    // Both sides must be readable. A malformed pub.dev response such as "1"
+    // otherwise parsed to [1,0,0] and announced a bogus upgrade to version 1.
+    if (!_isParseableVersion(current)) return false;
+    if (!_isParseableVersion(latest)) return false;
+
+    if (_versionCore(current) == '0.0.0') return false;
+
     final c = _parseVersion(current);
     final l = _parseVersion(latest);
     for (var i = 0; i < 3; i++) {
       if (l[i] > c[i]) return true;
       if (l[i] < c[i]) return false;
     }
-    return false;
+
+    // Numerically equal: a pre-release current is older than a plain latest.
+    return _isPreRelease(current) && !_isPreRelease(latest);
+  }
+
+  /// True when a version carries a `-suffix` pre-release tag.
+  static bool _isPreRelease(String version) =>
+      version.split('+').first.contains('-');
+
+  /// Strips pre-release/build suffixes and a conventional leading `v`.
+  ///
+  /// `v0.7.0` is a tag spelling, not a malformed version — treating it as
+  /// unreadable silenced its update notice permanently.
+  static String _versionCore(String version) {
+    final core = version.split('-').first.split('+').first.trim();
+    return core.startsWith('v') || core.startsWith('V')
+        ? core.substring(1)
+        : core;
+  }
+
+  /// True when [version] reads as `major.minor[.patch...]` with numeric parts.
+  ///
+  /// `_parseVersion` maps anything else to `[0,0,0]`, which would otherwise be
+  /// indistinguishable from a real `0.0.0` and compare older than every
+  /// release.
+  ///
+  /// Only the first three parts are compared, but a fourth is not a reason to
+  /// call the version unreadable: rejecting `1.2.3.4` reintroduced exactly the
+  /// permanent-silence failure this guard exists to prevent.
+  static bool _isParseableVersion(String version) {
+    final core = _versionCore(version);
+    if (core.isEmpty) return false;
+    final parts = core.split('.');
+    if (parts.length < 2) return false;
+    return parts.every((p) => p.isNotEmpty && int.tryParse(p) != null);
   }
 
   static List<int> _parseVersion(String version) {
-    final core = version.split('-').first.split('+').first;
-    final parts = core.split('.');
+    final parts = _versionCore(version).split('.');
     final result = <int>[0, 0, 0];
     for (var i = 0; i < 3 && i < parts.length; i++) {
       result[i] = int.tryParse(parts[i]) ?? 0;

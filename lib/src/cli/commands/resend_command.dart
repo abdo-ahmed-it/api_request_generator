@@ -26,7 +26,7 @@ class ResendCommand extends Command {
   String get invocation => 'api2dart resend <log-file.md>';
 
   @override
-  void run() async {
+  Future<void> run() async {
     final Logger logger = ConsoleLogger();
     final rest = argResults!.rest;
 

@@ -110,6 +110,41 @@ void main() {
       expect((report['response'] as Map)['source'], 'none');
     });
 
+    test('says why a shape is missing instead of staying silent', () {
+      // `source: none` alone is indistinguishable from "returns nothing", so a
+      // consuming agent could not tell a missing example from a failed fetch.
+      final unresolved = EndpointReport.build(endpoint());
+      expect((unresolved['response'] as Map)['note'], isNotNull);
+
+      final empty = EndpointReport.build(
+        endpoint(),
+        response: const ResponseDefinition(source: ResponseSource.none),
+      );
+      final note = (empty['response'] as Map)['note'] as String;
+      expect(note, contains('base_url'),
+          reason: 'the note should say how to get the real shape');
+    });
+
+    test('flags a schema-only response as unverified', () {
+      final report = EndpointReport.build(
+        endpoint(),
+        response: const ResponseDefinition(
+          source: ResponseSource.schema,
+          schema: {
+            'type': 'object',
+            'properties': {
+              'id': {'type': 'integer'}
+            }
+          },
+        ),
+      );
+
+      final response = report['response'] as Map;
+      expect(response['schema'], isNotNull);
+      // A contract is not observed data; the two routinely disagree.
+      expect(response['note'], contains('unverified'));
+    });
+
     test('infers Dart types from the sample', () {
       final report = EndpointReport.build(
         endpoint(),

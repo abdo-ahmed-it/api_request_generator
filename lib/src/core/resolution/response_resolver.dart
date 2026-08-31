@@ -75,7 +75,6 @@ class ResponseResolver {
     String baseUrl,
     String? token,
   ) async {
-
     final url = '$baseUrl${endpoint.path}';
 
     final authDef = token != null && token.isNotEmpty
@@ -131,7 +130,10 @@ class ResponseResolver {
         // Return null response but still have the log
         return ResolveResult(response: ResponseDefinition.empty, log: log);
       }
-    } catch (e) {
+    } catch (_) {
+      // A failure here is not fatal: the caller falls back to the example or
+      // schema branch, and ApiHttpClient has already logged the underlying
+      // network error. Returning null keeps that fallback chain intact.
     }
 
     return null;
@@ -143,7 +145,9 @@ class ResponseResolver {
       if (example != null) {
         return jsonEncode(example);
       }
-    } catch (e) {
+    } catch (_) {
+      // A schema shape we can't synthesise (an unresolved $ref, a cycle) just
+      // means no synthetic example; the caller degrades to an empty response.
     }
     return null;
   }
@@ -153,8 +157,7 @@ class ResponseResolver {
 
     switch (type) {
       case 'object':
-        final properties =
-            schema['properties'] as Map<String, dynamic>? ?? {};
+        final properties = schema['properties'] as Map<String, dynamic>? ?? {};
         final result = <String, dynamic>{};
         properties.forEach((key, value) {
           if (value is Map<String, dynamic>) {

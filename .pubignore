@@ -22,6 +22,10 @@ example/.apigen/
 linkedin_post.md
 docs/
 
+# Internal maintenance notes: a map of every trap and security surface in the
+# package, written for contributors rather than consumers. Not user docs.
+CLAUDE.md
+
 # MCP server: a Node dev tool that lives in this repo but is not part of the
 # Dart package. Its node_modules alone is ~52 MB. A .pubignore replaces
 # .gitignore entirely for publishing, so these need listing here too.

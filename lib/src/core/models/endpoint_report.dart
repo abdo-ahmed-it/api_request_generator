@@ -61,12 +61,9 @@ class EndpointReport {
   static Map<String, dynamic> _body(BodyDefinition body) {
     return {
       if (body.contentType != null) 'content_type': body.contentType!.name,
-      if (body.hasFormFields)
-        'fields': _params(body.formFields!),
-      if (body.hasRawBody)
-        'raw': _truncate(_decodeMaybe(body.rawBody!)),
-      if (body.hasFiles)
-        'files': body.files!.map((f) => f.fieldName).toList(),
+      if (body.hasFormFields) 'fields': _params(body.formFields!),
+      if (body.hasRawBody) 'raw': _truncate(_decodeMaybe(body.rawBody!)),
+      if (body.hasFiles) 'files': body.files!.map((f) => f.fieldName).toList(),
     };
   }
 
@@ -75,14 +72,35 @@ class EndpointReport {
     dynamic sample,
   ) {
     if (response == null) {
-      return {'source': 'none', 'note': 'no response resolved (shape unknown)'};
+      return {
+        'source': 'none',
+        'note': 'No response resolved — run without --dry-run, or pass '
+            'base_url to fetch a live sample.',
+      };
     }
+
+    // `source: none` with no explanation is indistinguishable from "this
+    // endpoint returns nothing". Say which of the fallback chain's steps ran
+    // out, so a consumer can tell a missing example from a failed fetch.
+    if (response.source == ResponseSource.none) {
+      return {
+        'source': 'none',
+        'note': 'The source has no response example or schema for this '
+            'endpoint, and no live sample was fetched. Pass base_url to '
+            'capture the real shape.',
+      };
+    }
+
     return {
       'source': response.source.name,
-      if (response.hasSchema)
-        'schema': SecretRedactor.json(response.schema),
+      if (response.hasSchema) 'schema': SecretRedactor.json(response.schema),
       if (sample != null) 'sample': _truncate(sample),
       if (sample != null) 'inferred_types': _inferTypes(sample),
+      // A schema without a sample is a contract, not observed data — the two
+      // routinely disagree, and the caller should know which it is holding.
+      if (sample == null && response.hasSchema)
+        'note': 'Schema only — no response body was captured, so field '
+            'nullability and real value shapes are unverified.',
     };
   }
 
@@ -152,8 +170,7 @@ class EndpointReport {
 
       // A map keyed "0","1","2"… is a PHP/Laravel array that serialized as an
       // object; decoding it as a List throws at runtime.
-      if (keys.isNotEmpty &&
-          keys.every((k) => int.tryParse(k) != null)) {
+      if (keys.isNotEmpty && keys.every((k) => int.tryParse(k) != null)) {
         notes.add('$path: object with numeric keys — a list serialized as an '
             'object; decode as a map, not a List');
       }
@@ -171,7 +188,8 @@ class EndpointReport {
         // {ar: …, en: …} is a translation object, not a String.
         if (value is Map) {
           final vk = value.keys.map((k) => k.toString()).toSet();
-          if (vk.isNotEmpty && vk.length <= 4 &&
+          if (vk.isNotEmpty &&
+              vk.length <= 4 &&
               vk.every((k) => k.length == 2) &&
               (vk.contains('ar') || vk.contains('en'))) {
             notes.add("'$childPath' is a localized object "

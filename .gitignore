@@ -43,3 +43,6 @@ api2dart/
 # MCP server (Node build artifacts)
 tools/api2dart-mcp/node_modules/
 tools/api2dart-mcp/dist/
+
+# Python bytecode from .claude skill scripts
+__pycache__/

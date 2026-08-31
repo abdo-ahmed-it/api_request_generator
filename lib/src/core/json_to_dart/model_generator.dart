@@ -25,15 +25,14 @@ class ModelGenerator {
   List<ClassDefinition> allClasses = <ClassDefinition>[];
   final Map<String, String> sameClassMapping = HashMap<String, String>();
   final Set<String> _usedClassNames = {};
-  late List<Hint> hints;
+  final List<Hint> hints;
 
-  ModelGenerator(this._rootClassName, [this._privateFields = false, hints]) {
-    if (hints != null) {
-      this.hints = hints;
-    } else {
-      this.hints = <Hint>[];
-    }
-  }
+  // `hints` was untyped, so a wrong argument threw at runtime on assignment
+  // rather than failing to compile. Now that _hintForPath actually applies
+  // them, the type matters.
+  ModelGenerator(this._rootClassName,
+      [this._privateFields = false, List<Hint>? hints])
+      : hints = hints ?? <Hint>[];
 
   Hint? _hintForPath(String path) {
     final hint =
@@ -41,7 +40,9 @@ class ModelGenerator {
     if (hint.path == "") {
       return null;
     }
-    return null;
+    // Previously returned null here too, so a supplied hint was never applied
+    // and the whole mechanism was dead code.
+    return hint;
   }
 
   String _uniqueClassName(String name, ClassDefinition newClass) {
@@ -114,7 +115,13 @@ class ModelGenerator {
           classDefinition = ClassDefinition(uniqueName, _privateFields);
           final Map<dynamic, dynamic> jsonRawData2 = jsonRawDynamicData;
           for (var key in jsonRawData2.keys) {
-            var typeDef = TypeDefinition.fromDynamic(jsonRawData2[key]);
+            // Same hint lookup as the first pass above. Without it a class that
+            // collided on name and got rebuilt here silently lost every hinted
+            // type, so the two passes disagreed about the same field.
+            final hint = _hintForPath('$path/$key');
+            var typeDef = hint != null
+                ? TypeDefinition(hint.type)
+                : TypeDefinition.fromDynamic(jsonRawData2[key]);
             if (typeDef.name == 'Class') {
               typeDef.name = camelCase(key);
             }

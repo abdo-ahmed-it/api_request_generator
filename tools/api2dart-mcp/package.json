@@ -8,7 +8,9 @@
   "scripts": {
     "build": "tsc",
     "watch": "tsc --watch",
-    "test": "node --test dist/*.test.js"
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "test": "npm run build && node --test dist/*.test.js"
   },
   "engines": { "node": ">=18" },
   "dependencies": {

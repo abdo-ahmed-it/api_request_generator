@@ -1,13 +1,36 @@
+import 'dart:io';
+import 'dart:isolate';
+
 import 'package:api_to_dart/api_to_dart.dart';
 import 'package:test/test.dart';
+
+/// Absolute path to a repo file, resolved from this source file's location.
+///
+/// Other suites assign `Directory.current`, so a path relative to the CWD
+/// raced with them under concurrent scheduling and failed intermittently.
+/// `Platform.script` points at a generated entrypoint under the test runner,
+/// so resolve against this library's own URI instead.
+final String _repoRoot = () {
+  // Resolve the package's own lib/ directory, then step up to the package
+  // root — the same trick version.dart uses, and independent of both the
+  // runner's CWD and its generated entrypoint.
+  final libUri = Isolate.resolvePackageUriSync(
+      Uri.parse('package:api_to_dart/api_to_dart.dart'));
+  if (libUri != null && libUri.scheme == 'file') {
+    return File.fromUri(libUri).parent.parent.path;
+  }
+  return Directory.current.path;
+}();
+
+String repoPath(String relative) => '$_repoRoot/$relative';
 
 void main() {
   group('PostmanSource', () {
     test('parses example Postman collection', () async {
       final source = PostmanSource();
       final tree = await source.parse(
-        const ApiSourceConfig(
-          filePath: 'example/lib/api/postman_collection.json',
+        ApiSourceConfig(
+          filePath: repoPath('example/lib/api/postman_collection.json'),
         ),
       );
 
@@ -28,8 +51,8 @@ void main() {
     test('parses auth types correctly', () async {
       final source = PostmanSource();
       final tree = await source.parse(
-        const ApiSourceConfig(
-          filePath: 'example/lib/api/postman_collection.json',
+        ApiSourceConfig(
+          filePath: repoPath('example/lib/api/postman_collection.json'),
         ),
       );
 
@@ -40,21 +63,19 @@ void main() {
       expect(home.auth.type, equals(AuthType.none));
 
       // Profile Data should have bearer
-      final profile =
-          allEndpoints.firstWhere((e) => e.name == 'Profile Data');
+      final profile = allEndpoints.firstWhere((e) => e.name == 'Profile Data');
       expect(profile.auth.type, equals(AuthType.bearer));
     });
 
     test('parses body correctly', () async {
       final source = PostmanSource();
       final tree = await source.parse(
-        const ApiSourceConfig(
-          filePath: 'example/lib/api/postman_collection.json',
+        ApiSourceConfig(
+          filePath: repoPath('example/lib/api/postman_collection.json'),
         ),
       );
 
-      final login =
-          tree.allEndpoints.firstWhere((e) => e.name == 'Login');
+      final login = tree.allEndpoints.firstWhere((e) => e.name == 'Login');
       expect(login.body, isNotNull);
       expect(login.body!.contentType, equals(BodyContentType.formData));
       expect(login.body!.formFields, containsPair('phone', '123456789'));
@@ -103,7 +124,8 @@ void main() {
 
     test('same path different methods produce distinct file and class names',
         () {
-      const get = ApiEndpoint(name: 'Users', path: '/users', method: HttpMethod.GET);
+      const get =
+          ApiEndpoint(name: 'Users', path: '/users', method: HttpMethod.GET);
       const post =
           ApiEndpoint(name: 'Users', path: '/users', method: HttpMethod.POST);
 
@@ -174,7 +196,8 @@ void main() {
           const ApiFolder(
             name: 'Auth',
             endpoints: [
-              ApiEndpoint(name: 'Login', path: '/login', method: HttpMethod.POST),
+              ApiEndpoint(
+                  name: 'Login', path: '/login', method: HttpMethod.POST),
               ApiEndpoint(
                   name: 'Register', path: '/register', method: HttpMethod.POST),
             ],
@@ -192,12 +215,35 @@ void main() {
 
   group('LocalFileSource', () {
     test('parses YAML config', () async {
+      // Written to an absolute temp path rather than read from `example/`:
+      // other suites assign Directory.current, so a relative path here raced
+      // with them under concurrent scheduling and failed intermittently.
+      final dir = Directory.systemTemp.createTempSync('api2dart_localfile');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final yaml = File('${dir.path}/single_action.yaml')..writeAsStringSync('''
+base_url: https://to-deal.code-link.com/api
+path: /auth/register
+method: POST
+action_name: Register
+file_name: custom_register.dart
+output_dir: lib/features/account/actions
+auth:
+  type: none
+headers:
+  Content-Type: application/x-www-form-urlencoded
+  Accept: application/json
+query_params:
+  source: app
+body:
+  mode: urlencoded
+  data:
+    type: phone
+    phone: 5555555555
+    email: user@example.com
+''');
+
       final source = LocalFileSource();
-      final tree = await source.parse(
-        const ApiSourceConfig(
-          filePath: 'example/lib/single_action.yaml',
-        ),
-      );
+      final tree = await source.parse(ApiSourceConfig(filePath: yaml.path));
 
       expect(tree.totalEndpoints, equals(1));
       final endpoint = tree.rootEndpoints.first;

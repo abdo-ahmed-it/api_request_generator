@@ -45,8 +45,7 @@ class OpenApiSource implements ApiSource {
 
     final title = _extractTitle(spec);
     final components = spec['components'] as Map<String, dynamic>? ?? {};
-    final schemas =
-        components['schemas'] as Map<String, dynamic>? ?? {};
+    final schemas = components['schemas'] as Map<String, dynamic>? ?? {};
     final paths = spec['paths'] as Map<String, dynamic>? ?? {};
 
     // Group endpoints by tag (first tag becomes the folder)
@@ -191,18 +190,15 @@ class OpenApiSource implements ApiSource {
 
     // application/x-www-form-urlencoded
     if (content.containsKey('application/x-www-form-urlencoded')) {
-      final formContent =
-          content['application/x-www-form-urlencoded'] as Map?;
+      final formContent = content['application/x-www-form-urlencoded'] as Map?;
       final schema = formContent?['schema'] as Map<String, dynamic>?;
       if (schema != null) {
         final resolved = _resolveRef(schema, schemas);
-        final props =
-            resolved['properties'] as Map<String, dynamic>? ?? {};
+        final props = resolved['properties'] as Map<String, dynamic>? ?? {};
         final formFields = <String, String>{};
         props.forEach((key, value) {
-          formFields[key] = (value is Map ? value['example'] : value)
-                  ?.toString() ??
-              '';
+          formFields[key] =
+              (value is Map ? value['example'] : value)?.toString() ?? '';
         });
         return BodyDefinition(
           contentType: BodyContentType.urlEncoded,
@@ -217,8 +213,7 @@ class OpenApiSource implements ApiSource {
       final schema = multipartContent?['schema'] as Map<String, dynamic>?;
       if (schema != null) {
         final resolved = _resolveRef(schema, schemas);
-        final props =
-            resolved['properties'] as Map<String, dynamic>? ?? {};
+        final props = resolved['properties'] as Map<String, dynamic>? ?? {};
         final formFields = <String, String>{};
         props.forEach((key, value) {
           if (value is Map && value['format'] != 'binary') {
@@ -268,8 +263,7 @@ class OpenApiSource implements ApiSource {
         responses['200'] ?? responses['201'] ?? responses['2XX'];
     if (successResponse == null || successResponse is! Map) return null;
 
-    final content =
-        successResponse['content'] as Map<dynamic, dynamic>? ?? {};
+    final content = successResponse['content'] as Map<dynamic, dynamic>? ?? {};
     final jsonContent = content['application/json'] as Map?;
     if (jsonContent == null) return null;
 
@@ -324,6 +318,16 @@ class OpenApiSource implements ApiSource {
     return null;
   }
 
+  /// Resolves `$ref`s one hop deep, then walks the remaining structure.
+  ///
+  /// A depth cap was tried here and reverted: a matched `$ref` returns the
+  /// resolved schema verbatim without recursing into it, so a self-referential
+  /// schema cannot loop through this method. The only recursion is structural
+  /// descent through a finite map, which terminates on its own. Counting that
+  /// descent instead truncated legitimate specs — two depth units per nesting
+  /// level meant `$ref`s stopped resolving at eight levels of objects, and the
+  /// field silently lost its shape in the generated model. Cycle protection,
+  /// if ever needed, must track visited schema names across `$ref` hops.
   Map<String, dynamic> _resolveRef(
       Map<String, dynamic> schema, Map<String, dynamic> schemas) {
     final ref = schema[r'$ref']?.toString();
@@ -353,8 +357,7 @@ class OpenApiSource implements ApiSource {
 
     switch (type) {
       case 'object':
-        final properties =
-            schema['properties'] as Map<String, dynamic>? ?? {};
+        final properties = schema['properties'] as Map<String, dynamic>? ?? {};
         final result = <String, dynamic>{};
         properties.forEach((key, value) {
           if (value is Map<String, dynamic>) {
@@ -384,8 +387,19 @@ class OpenApiSource implements ApiSource {
 
   // Generic/vague names that should be replaced with path-based names
   static const _genericNames = {
-    'index', 'store', 'update', 'show', 'delete', 'destroy',
-    'create', 'edit', 'list', 'get', 'post', 'put', 'patch',
+    'index',
+    'store',
+    'update',
+    'show',
+    'delete',
+    'destroy',
+    'create',
+    'edit',
+    'list',
+    'get',
+    'post',
+    'put',
+    'patch',
   };
 
   /// Builds a meaningful endpoint name.
@@ -434,9 +448,8 @@ class OpenApiSource implements ApiSource {
     }
 
     // Take last 2-3 meaningful segments
-    final nameParts = segments.length <= 3
-        ? segments
-        : segments.sublist(segments.length - 3);
+    final nameParts =
+        segments.length <= 3 ? segments : segments.sublist(segments.length - 3);
 
     // Add method prefix to avoid collisions (GET /users vs POST /users)
     final pathName = _toPascalCase(nameParts.join('-'));
@@ -556,7 +569,8 @@ class OpenApiSource implements ApiSource {
 
     final type = schema['type']?.toString();
     final example = schema['example'];
-    if (example != null && example is! String || example is String && !example.contains('{{')) {
+    if (example != null && example is! String ||
+        example is String && !example.contains('{{')) {
       // Use actual example if it's not a mock template
       if (example != null && example.toString().contains('{{')) {
         // Skip mock templates like {{$person.fullName}}
@@ -595,7 +609,8 @@ class OpenApiSource implements ApiSource {
       default:
         // Check if it has properties (implicit object)
         if (schema.containsKey('properties')) {
-          final properties = schema['properties'] as Map<String, dynamic>? ?? {};
+          final properties =
+              schema['properties'] as Map<String, dynamic>? ?? {};
           final result = <String, dynamic>{};
           properties.forEach((key, value) {
             if (value is Map<String, dynamic>) {

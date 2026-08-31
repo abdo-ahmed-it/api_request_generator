@@ -18,7 +18,7 @@ Map<String, bool> PRIMITIVE_TYPES = {
   'Null': true,
 };
 
-enum ListType { Object, String, Double, Int, Null }
+enum ListType { Object, String, Double, Int, Bool, Null }
 
 class MergeableListType {
   final ListType listType;
@@ -41,12 +41,16 @@ MergeableListType mergeableListType(List<dynamic> list) {
 }
 
 ListType? getInferredType(dynamic d) {
-  if (d.runtimeType == int) {
+  // `is` rather than `runtimeType ==`: the latter misses platform-specific
+  // subtypes (e.g. _Double, _OneByteString) and so silently returned null.
+  if (d is int) {
     return ListType.Int;
-  } else if (d.runtimeType == double) {
+  } else if (d is double) {
     return ListType.Double;
-  } else if (d.runtimeType == String) {
+  } else if (d is String) {
     return ListType.String;
+  } else if (d is bool) {
+    return ListType.Bool;
   } else if (d is Map) {
     return ListType.Object;
   }
@@ -84,7 +88,10 @@ WithWarning<Map> mergeObj(Map obj, Map other, String path) {
       if (t != otherType) {
         if (t == 'int' && otherType == 'double') {
           clone[k] = v;
-        } else if (clone[k].runtimeType != 'double' && v.runtimeType != 'int') {
+        } else if (!(t == 'double' && otherType == 'int')) {
+          // The mirror of the widening above: double-then-int is still a
+          // number, not an ambiguous type. This compared a Type to a String
+          // and so was always true, warning on that benign pair too.
           warnings.add(newAmbiguousType('$path/$k'));
         }
       } else if (t == 'List') {
@@ -129,7 +136,10 @@ WithWarning<Map> mergeObjectList(List<dynamic> list, String path,
           if (t != otherType) {
             if (t == 'int' && otherType == 'double') {
               obj[k] = v;
-            } else if (t != 'double' && otherType != 'int') {
+            } else if (!(t == 'double' && otherType == 'int')) {
+              // Mirror of the guard in mergeObj: only the double/int widening
+              // is benign. The old `t != 'double' && otherType != 'int'` also
+              // swallowed genuine mismatches such as String vs int.
               int realIndex = i;
               if (idx != -1) {
                 realIndex = idx - i;

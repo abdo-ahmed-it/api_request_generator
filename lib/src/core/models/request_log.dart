@@ -34,6 +34,10 @@ class RequestLog {
   static const String _metaOpen = '<!-- api2dart:request';
   static const String _metaClose = '-->';
 
+  /// Prefix marking a base64-encoded metadata payload. Logs written before
+  /// this encoding stored raw JSON and are still read (see [fromMarkdown]).
+  static const String _metaBase64Marker = 'b64:';
+
   /// Renders the log as Markdown. [fileName] (without extension) is used in
   /// the Resend snippet so the printed `api2dart resend '<file>.md'` matches
   /// the file this log is actually written to.
@@ -47,8 +51,7 @@ class RequestLog {
     sb.writeln();
 
     // TL;DR — quick summary line
-    sb.writeln(
-        '> $statusLine `$requestMethod` ${SecretRedactor.text(url)} — '
+    sb.writeln('> $statusLine `$requestMethod` ${SecretRedactor.text(url)} — '
         '${_formatDuration(duration)}');
     sb.writeln();
 
@@ -69,8 +72,7 @@ class RequestLog {
       sb.writeln('_(none)_');
     } else {
       sb.writeln('```http');
-      SecretRedactor.headers(headers)
-          .forEach((k, v) => sb.writeln('\$k: \$v'));
+      SecretRedactor.headers(headers).forEach((k, v) => sb.writeln('$k: $v'));
       sb.writeln('```');
     }
     sb.writeln();
@@ -140,7 +142,12 @@ class RequestLog {
       'queryParameters': queryParameters,
       'requestBody': requestBody,
     };
-    return '$_metaOpen ${jsonEncode(meta)} $_metaClose';
+    // Base64 so the payload can never contain the `-->` terminator itself.
+    // A body carrying an arrow (`{"note": "a --> b"}`) used to truncate the
+    // block, leaving JSON that failed to decode — `fromMarkdown` then returned
+    // null and `resend` refused the log outright.
+    final encoded = base64.encode(utf8.encode(jsonEncode(meta)));
+    return '$_metaOpen $_metaBase64Marker$encoded $_metaClose';
   }
 
   /// Reconstructs a [RequestLog] from the hidden metadata block in a previously
@@ -149,14 +156,21 @@ class RequestLog {
   ///
   /// Returns `null` if no metadata block is found (e.g. an older log file).
   static RequestLog? fromMarkdown(String content) {
-    final start = content.indexOf(_metaOpen);
+    // `lastIndexOf`: the real block is always written last, so a response body
+    // that echoes the literal marker text no longer shadows it.
+    final start = content.lastIndexOf(_metaOpen);
     if (start < 0) return null;
     final end = content.indexOf(_metaClose, start + _metaOpen.length);
     if (end < 0) return null;
 
-    final json = content.substring(start + _metaOpen.length, end).trim();
+    var json = content.substring(start + _metaOpen.length, end).trim();
     final Map<String, dynamic> meta;
     try {
+      if (json.startsWith(_metaBase64Marker)) {
+        json = utf8.decode(
+          base64.decode(json.substring(_metaBase64Marker.length)),
+        );
+      }
       meta = jsonDecode(json) as Map<String, dynamic>;
     } catch (_) {
       return null;

@@ -45,14 +45,28 @@ class CliApp {
         ? UpdateChecker.fetchLatestVersion()
         : Future<String?>.value(null);
 
+    // In --json mode stdout is a single JSON document that the MCP server
+    // parses. The notice below writes to stdout, so appending it there turns a
+    // pending update into a hard parse failure for every consumer.
+    final machineReadable = effectiveArgs.contains('--json');
+
     try {
       await _runner.run(effectiveArgs);
+    } on UsageException catch (e) {
+      // A bad flag or unknown command printed usage but still exited 0, so a
+      // typo in CI passed the build while generating nothing. 64 = EX_USAGE.
+      final logger = ConsoleLogger();
+      logger.e(e.toString());
+      exitCode = 64;
     } catch (e) {
       final logger = ConsoleLogger();
       logger.e('Error: $e');
+      // 70 = EX_SOFTWARE. Anything reaching here is an unhandled failure, and
+      // reporting success for it hides real breakage from callers.
+      exitCode = 70;
     }
 
-    await _maybeShowUpdateNotice(updateFuture);
+    await _maybeShowUpdateNotice(updateFuture, suppress: machineReadable);
   }
 
   /// Skip the update check for commands that already handle it themselves
@@ -73,10 +87,13 @@ class CliApp {
     return !skip.contains(first);
   }
 
-  Future<void> _maybeShowUpdateNotice(Future<String?> future) async {
+  Future<void> _maybeShowUpdateNotice(
+    Future<String?> future, {
+    bool suppress = false,
+  }) async {
     try {
       final latest = await future;
-      if (latest == null) return;
+      if (suppress || latest == null) return;
       if (!UpdateChecker.isNewer(packageVersion, latest)) return;
 
       stdout.writeln('');

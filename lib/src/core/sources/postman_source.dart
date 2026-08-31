@@ -61,25 +61,70 @@ class PostmanSource implements ApiSource {
     return variables;
   }
 
-  _ParseResult _parseItems(
-      List<dynamic> items, Map<String, String> variables) {
+  /// Guards against a collection whose `item` arrays nest unreasonably deep
+  /// (or reference each other), which would otherwise recurse without bound.
+  static const int _maxDepth = 64;
+
+  /// Total items in [items] and every `item` array below it, so the
+  /// depth-limit message reports the real size of the dropped subtree.
+  ///
+  /// Walked iteratively with an explicit stack rather than recursively: this
+  /// runs on exactly the structure that just tripped the depth cap, so a
+  /// recursive walk would overflow while reporting the guard meant to prevent
+  /// it. A recursive version bounded by [_maxDepth] was tried and undercounted
+  /// — it restarted its own budget at the depth the parser had already
+  /// stopped at, so a 200-deep chain reported 65 of 137 dropped items.
+  static int _countItems(List<dynamic> items) {
+    var total = 0;
+    final stack = <List<dynamic>>[items];
+    while (stack.isNotEmpty) {
+      final level = stack.removeLast();
+      for (final item in level) {
+        if (item is! Map) continue;
+        total++;
+        final nested = item['item'];
+        if (nested is List) stack.add(nested);
+      }
+    }
+    return total;
+  }
+
+  _ParseResult _parseItems(List<dynamic> items, Map<String, String> variables,
+      [int depth = 0]) {
     final folders = <ApiFolder>[];
     final endpoints = <ApiEndpoint>[];
+
+    if (depth >= _maxDepth) {
+      // Dropping a subtree in silence would be indistinguishable from an empty
+      // folder, which is the silent-failure pattern this package treats as a
+      // defect. The parser has no logger, so say it on stderr.
+      // Count the whole subtree, not just this level: `items.length` reported
+      // only the immediate siblings and understated the loss by however deep
+      // the dropped branches ran.
+      stderr.writeln(
+        'api2dart: collection nesting exceeded $_maxDepth levels — '
+        '${_countItems(items)} item(s) below this point were skipped.',
+      );
+      return _ParseResult(folders: folders, endpoints: endpoints);
+    }
 
     for (final item in items) {
       if (item is! Map) continue;
 
+      // An item may carry both keys. These are checked independently rather
+      // than as if/else so a nested folder is no longer silently dropped just
+      // because its parent also defines a request.
       if (item.containsKey('request')) {
-        // It's an endpoint
         final endpoint = _parseEndpoint(item, variables);
         if (endpoint != null) {
           endpoints.add(endpoint);
         }
-      } else if (item.containsKey('item')) {
-        // It's a folder
+      }
+
+      if (item.containsKey('item')) {
         final folderName = item['name']?.toString() ?? 'Unknown';
         final subItems = item['item'] as List<dynamic>? ?? [];
-        final subResult = _parseItems(subItems, variables);
+        final subResult = _parseItems(subItems, variables, depth + 1);
         folders.add(ApiFolder(
           name: folderName,
           subfolders: subResult.folders,

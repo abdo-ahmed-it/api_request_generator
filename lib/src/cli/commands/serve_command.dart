@@ -85,7 +85,7 @@ class ServeCommand extends Command {
   String get invocation => 'api2dart serve -s <source> -c <file> [-p <port>]';
 
   @override
-  void run() async {
+  Future<void> run() async {
     final Logger logger = ConsoleLogger();
     final sourceType = argResults!['source'] as String?;
     final configPath = argResults!['config'] as String?;

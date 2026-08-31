@@ -42,7 +42,7 @@ class ResetCommand extends Command {
   String get invocation => 'api2dart reset [--all] [-y]';
 
   @override
-  void run() async {
+  Future<void> run() async {
     final Logger logger = ConsoleLogger();
     final clearAll = argResults!['all'] as bool;
     final skipConfirm = argResults!['yes'] as bool;

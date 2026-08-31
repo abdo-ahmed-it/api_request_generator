@@ -65,6 +65,38 @@ test("json is redacted at any depth", () => {
   assert.equal(out.user.name, "Sara");
 });
 
+test("inferred_types keeps type names under credential keys", () => {
+  // `inferred_types` is keyed by response field, so `access_token` appears
+  // there — but its value is a Dart type name, not a token. Blanket key
+  // redaction blanked it and destroyed what the field exists to carry.
+  const out = redactJson({
+    inferred_types: {
+      access_token: "String",
+      expires_at: "int",
+      scopes: ["String"],
+      nested: { session: "String" },
+    },
+  }) as any;
+  assert.equal(out.inferred_types.access_token, "String");
+  assert.equal(out.inferred_types.expires_at, "int");
+  assert.deepEqual(out.inferred_types.scopes, ["String"]);
+  assert.equal(out.inferred_types.nested.session, "String");
+});
+
+test("inferred_types still redacts a value that is not a type name", () => {
+  // The exemption is an allowlist of type names, not a blanket pass on the
+  // subtree: a real value appearing there is still redacted.
+  const out = redactJson({
+    inferred_types: { access_token: `Bearer ${FAKE_UUID}` },
+  }) as any;
+  assert.notEqual(out.inferred_types.access_token, `Bearer ${FAKE_UUID}`);
+});
+
+test("a credential key outside inferred_types is still redacted", () => {
+  const out = redactJson({ response: { access_token: "String" } }) as any;
+  assert.equal(out.response.access_token, PLACEHOLDER);
+});
+
 test("translation objects survive - they are shape, not secrets", () => {
   const out = redactJson({ name: { ar: "سكن", en: "Housing" } }) as any;
   assert.equal(out.name.en, "Housing");

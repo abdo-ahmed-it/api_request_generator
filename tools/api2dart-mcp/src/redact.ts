@@ -353,11 +353,51 @@ export function redactHeaderBlock(block: string): string {
 }
 
 /** Walks decoded JSON, redacting secret-named keys at any depth. */
+/**
+ * The closed set of type names `EndpointReport._inferTypes` can emit.
+ *
+ * `inferred_types` mirrors the response's key names, so a credential key like
+ * `access_token` lands there too — but the *value* is a Dart type name, never
+ * sampled data. Blanket key-based redaction therefore replaced `"String"` with
+ * the placeholder and destroyed the one thing the field exists to carry.
+ *
+ * Matched against this allowlist rather than exempting the subtree wholesale:
+ * if the CLI ever puts a real value there, it is redacted as before.
+ */
+const INFERRED_TYPE_NAMES = /^(bool|int|num|String|dynamic \(null in sample\)|List<dynamic> \(empty — type unknown\))$/;
+
+/**
+ * Redacts `inferred_types`, keeping values that are recognisable type names.
+ *
+ * Keys still come from the API, so they are passed through `redactJson`'s own
+ * key handling by way of the caller; only the leaf values are spared.
+ */
+function redactInferredTypes(data: unknown): unknown {
+  if (Array.isArray(data)) return data.map(redactInferredTypes);
+  if (data && typeof data === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+      out[key] = redactInferredTypes(value);
+    }
+    return out;
+  }
+  if (typeof data === "string") {
+    return INFERRED_TYPE_NAMES.test(data) ? data : redactEmbeddedJson(data);
+  }
+  return data;
+}
+
 export function redactJson(data: unknown): unknown {
   if (Array.isArray(data)) return data.map(redactJson);
   if (data && typeof data === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+      // `inferred_types` carries Dart type names keyed by response field, so a
+      // key like `access_token` must not blank out its `"String"`.
+      if (key === "inferred_types") {
+        out[key] = redactInferredTypes(value);
+        continue;
+      }
       out[key] = isSecretKey(key) ? PLACEHOLDER : redactJson(value);
     }
     return out;

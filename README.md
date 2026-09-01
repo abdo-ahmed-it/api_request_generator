@@ -12,6 +12,9 @@ A Dart CLI tool (`api2dart`) that turns any API — **Postman**, **OpenAPI**, **
 - **Auto re-login** — when your token expires mid-run, it logs in again through your own API (password or OTP) and carries on, instead of failing every request
 - **Two output modes** — Action + Response (when `api_request` is in your pubspec) or Response-only, auto-detected
 - **Markdown request logs** with a built-in `resend` to replay any request
+- **Machine-readable `--json` report** — endpoint shape, schema, sample and inferred Dart types on stdout, for scripts and agents
+- **Secret redaction** — tokens, passwords and API keys are stripped from logs and from `--json` output
+- **MCP server** — lets an AI agent inspect your API's real shape mid-conversation
 - **Settings persistence** — per project in `.api2dart/config.yaml`
 
 ## Installation
@@ -81,6 +84,51 @@ api2dart generate -s openapi -c openapi.yaml -m response-only --no-interactive
 api2dart generate -s postman -c collection.json --dry-run --no-interactive
 ```
 
+### Machine-readable output (`--json`)
+
+`--json` prints a single JSON document to stdout and sends every diagnostic to stderr, so the payload stays parseable. It implies `--dry-run` (nothing is written) and skips the interactive selector.
+
+```bash
+api2dart generate -s openapi -c openapi.yaml --json > report.json
+```
+
+```json
+{
+  "endpoint_count": 1,
+  "endpoints": [
+    {
+      "name": "ListUsers",
+      "method": "GET",
+      "path": "/users",
+      "description": "List users",
+      "requires_auth": false,
+      "query_params": [],
+      "headers": [],
+      "response": {
+        "source": "example",
+        "sample": { "status": true, "data": [{ "id": 1, "name": "a" }] },
+        "inferred_types": { "status": "bool", "data": [{ "id": "int", "name": "String" }] }
+      },
+      "notes": [],
+      "would_write": "api2dart/2026-08-31/actions/get_list_users_response.dart"
+    }
+  ]
+}
+```
+
+`source` is which resolution step produced the sample (`live`, `example`, `schema`, or `none`). `notes` carries heuristics about the shape. Secrets are redacted and long arrays truncated to two items, so the report is safe to paste or pipe.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `1` | Runtime failure (parse error, unknown source, failed resend/serve) |
+| `64` | Usage error — bad flag, unknown command, or the selector asked for on a non-TTY |
+| `65` | The input file exists but couldn't be read as a log (`resend`) |
+| `66` | Input file not found (`resend`) |
+| `70` | Unhandled internal error |
+
 ### Replay a request
 
 Every generated log embeds the request, so you can re-run it and refresh the log in place:
@@ -105,13 +153,14 @@ api2dart upgrade          # update to the latest version on pub.dev
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--source` | `-s` | | `postman`, `openapi`, `apidog`, `file` |
-| `--config` | `-c` | | Collection/spec file. Omit to launch the wizard |
+| `--config` | `-c` | | Collection/spec file. Omit to launch the wizard, or with `-s apidog` to use the bound project |
 | `--output` | `-o` | `api2dart` | Root output dir (a dated `actions/`+`logs/` subfolder is created inside) |
 | `--base-url` | `-b` | | Base URL for live response fetch |
 | `--token` | `-t` | | Auth token for live fetch |
 | `--mode` | `-m` | `auto` | `auto`, `action`, or `response-only` |
 | `--no-interactive` | | `false` | Generate all, skip the selector (for CI/non-TTY) |
 | `--dry-run` | | `false` | Preview without writing |
+| `--json` | | `false` | Machine-readable endpoint report on stdout (implies `--dry-run`) |
 
 ### `serve` — local web UI for a file
 
@@ -232,12 +281,86 @@ The failing endpoint is retried once, then the run continues with the new token 
 
 > **Credentials** are stored in plain text in `.api2dart/config.yaml`, namespaced per source. The wizard warns you before collecting them, adds `.api2dart/` to your `.gitignore`, and never echoes passwords as you type — but use development accounts. `api2dart reset` clears them.
 
+## MCP server (for AI agents)
+
+`tools/api2dart-mcp/` is a stdio MCP server that exposes endpoint inspection to an agent, so it can fetch an API's real shape mid-conversation instead of guessing.
+
+```bash
+cd tools/api2dart-mcp
+npm install && npm run build     # dist/ is gitignored — a fresh clone must build first
+```
+
+It's wired through `.mcp.json` at the repo root.
+
+| Tool | Writes? | Purpose |
+|---|---|---|
+| `api2dart_list` | no | List endpoints. Cheap — start here |
+| `api2dart_inspect` | no | Shape of specific endpoints: params, schema, sample, notes |
+| `api2dart_read_log` | no | Read a past capture, redacted |
+| `api2dart_resend` | **yes** | Replay a saved request; overwrites the log in place |
+| `api2dart_generate` | **yes** | Write Dart files |
+
+It deliberately returns **JSON and inferred types, not Dart** — the generator infers from a single sample and knows nothing about your project's conventions, so the agent writes the action against your own rules.
+
+### Working without a spec file
+
+For Apidog you can skip `config` entirely. Bind a project once from the wizard:
+
+```bash
+api2dart          # pick Apidog → project → environment
+```
+
+That saves the project and environment (not the token) in `.api2dart/config.yaml`. From then on the agent can call `api2dart_list` / `api2dart_inspect` with `source: "apidog"` and no `config`, and the spec is exported fresh from Apidog on every call. The same works from the terminal:
+
+```bash
+api2dart generate -s apidog --json          # no -c needed
+```
+
+If no project has been bound yet, the command fails with exit `64` and tells you to run the wizard — it never drops into an interactive prompt, which would hang the MCP server.
+
+For live Apidog fetch, the server reads the token from `APIDOG_TOKEN` or the macOS keychain — never from `.api2dart/config.yaml`, which is cleartext:
+
+```bash
+security add-generic-password -s api2dart-apidog-token -a "$USER" -w '<TOKEN>'
+```
+
+See [`tools/api2dart-mcp/README.md`](tools/api2dart-mcp/README.md) for details.
+
+## Security
+
+- **Secrets are redacted** in Markdown logs and in `--json` output — `authorization`, `x-api-key`, `cookie` and friends by header name; anything matching `token|secret|password|api_key|credential|…` by JSON key at any depth; and bearer/Sanctum token shapes found in free text.
+- **One deliberate exception:** the hidden `api2dart:request` metadata block at the bottom of each log stores headers **verbatim**, because that's what makes `resend` able to replay the request. **A log file on disk therefore contains a live token** — don't commit `api2dart/` or paste a raw log anywhere public.
+- **`.api2dart/` holds cleartext** API tokens and, if you set up auto re-login, credentials. The tool appends it to your `.gitignore` automatically when a `.git` directory is present.
+- **The MCP server never reads a token from `.api2dart/config.yaml`.** When `config` is omitted for Apidog it reads only the non-secret binding (project id, environment id and name) from that file; the credential still has to come from `APIDOG_TOKEN` or the keychain.
+- **The web UI and the token-capture server bind to loopback only** (`127.0.0.1`).
+
+## Contributing
+
+```bash
+dart pub get
+dart analyze      # 17 pre-existing issues, exits 0 — a change shouldn't raise the count
+dart test         # 229 tests
+dart format .
+```
+
+MCP server:
+
+```bash
+cd tools/api2dart-mcp
+npm install
+npm run typecheck
+npm test
+```
+
+CI runs all of the above on every pull request, plus a redaction-parity job — `SecretRedactor` is duplicated in Dart and TypeScript, and both suites assert the same key set to keep the two from drifting.
+
 ## Requirements
 
 - Dart SDK >= 3.6.2
 - Postman integration: an API key from [Postman API keys](https://postman.co/settings/me/api-keys)
 - Apidog integration: an API Access Token from [Apidog Settings](https://app.apidog.com/settings/api-access-token)
 - Action mode needs the [`api_request`](https://pub.dev/packages/api_request) package; response-only mode has no runtime dependencies
+- MCP server (optional): Node.js >= 18
 
 ## License
 

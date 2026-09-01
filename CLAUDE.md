@@ -44,7 +44,7 @@ dart format .
 
 `--no-interactive` is `negatable: false` — **there is no `--interactive` flag**, the name itself is the negative. `--json` implies dry-run, prints JSON to stdout and diagnostics to stderr; it is what the MCP server consumes.
 
-Unlike the Flutter projects in this workspace, **`dart test` is the real verification here** — 165 tests, and they pass. Run it. `dart analyze` alone is not enough.
+Unlike the Flutter projects in this workspace, **`dart test` is the real verification here** — 235 tests, and they pass. Run it. `dart analyze` alone is not enough.
 
 ## Architecture
 
@@ -61,7 +61,7 @@ Core/CLI separation: all reusable logic lives in `lib/src/core/`, CLI-only code 
 
 **`models/`** — `ApiEndpoint` (canonical endpoint; derives `key`, `actionClassName`, `responseClassName`, `fileName`), `EndpointTree`/`ApiFolder`, `BodyDefinition` (`formData|urlEncoded|rawJson|multipart`), `AuthDefinition` (`none|bearer|basic|apiKey`), `ResponseDefinition` (`schema|example|fetched|none`), `ApiSourceConfig`, `EndpointReport` (the `--json` payload: redacts, truncates arrays to 2, infers Dart types, emits `notes[]` heuristics), `RequestLog` (Markdown renderer + hidden resend metadata block), `SecretRedactor`, `LoginConfig`/`LoginConfigStore`.
 
-**`sources/`** — each implements `ApiSource.parse(ApiSourceConfig) → EndpointTree`. `PostmanSource` (v2.1, recursive `item[]`), `OpenApiSource` (656 lines; YAML-then-JSON fallback, `$ref` resolution, schema→example synthesis), `ApidogSource` (28-line delegate to `OpenApiSource`), `LocalFileSource` (single-endpoint YAML), `UrlVariableResolver` (strips Apidog `<url_var>` prefixes into `baseUrlOverride` — the shared source of truth for terminal and web paths), `GitignoreGuard`, and `api_fetchers/` (`postman_fetcher`, `apidog_fetcher`, `config_storage`).
+**`sources/`** — each implements `ApiSource.parse(ApiSourceConfig) → EndpointTree`. `PostmanSource` (v2.1, recursive `item[]`), `OpenApiSource` (656 lines; YAML-then-JSON fallback, `$ref` resolution, schema→example synthesis), `ApidogSource` (28-line delegate to `OpenApiSource`), `LocalFileSource` (single-endpoint YAML), `ApidogProjectLoader` (non-interactive replay of the wizard's saved Apidog binding — what `generate -s apidog` with no `-c` and the MCP server use; the wizard delegates to it too, so the export/resolve/parse sequence exists once), `UrlVariableResolver` (strips Apidog `<url_var>` prefixes into `baseUrlOverride` — the shared source of truth for terminal and web paths), `GitignoreGuard`, and `api_fetchers/` (`postman_fetcher`, `apidog_fetcher`, `config_storage`).
 
 **`generation/`** — `ActionGenerator` (emits the `ApiRequestAction` source string), `ResponseGenerator` (thin wrapper over `ModelGenerator`), `CodeEmitter` (formats via `dart_style`, writes, `emitBatch`, `generateCode` for previews), `body_processor.dart`, `PubspecInspector` (looks for `api_request` across `dependencies`/`dev_dependencies`/`dependency_overrides` — this is what drives `mode: auto`).
 
@@ -134,17 +134,17 @@ These are measured from the code, not aspirational.
 
 ### Analyze baseline
 
-`analysis_options.yaml` is one line: `include: package:lints/recommended.yaml`. **`dart analyze` reports 20 pre-existing issues** (1 warning, 19 infos) and exits 0. Know the baseline so you can tell your issue from the furniture:
+`analysis_options.yaml` is one line: `include: package:lints/recommended.yaml`. **`dart analyze` reports 17 pre-existing issues** (1 warning, 16 infos) and exits 0. Know the baseline so you can tell your issue from the furniture:
 
-- `helpers.dart` — `PRIMITIVE_TYPES` + 5 `constant_identifier_names`, and **2 `unrelated_type_equality_checks` at :87 that are a real bug** (see Traps).
-- `api_endpoint.dart:5` — 5 `constant_identifier_names` for `HttpMethod`'s uppercase `GET…DELETE`. **Intentional** — the names are compared against HTTP verb strings — but nothing suppresses the lint.
-- 3 `unnecessary_brace_in_string_interps`, 2 `empty_catches` in `response_resolver.dart`, 1 `unintended_html_in_doc_comment`, and 1 `unused_element_parameter` warning in a test.
+- 11 `constant_identifier_names` + 1 `non_constant_identifier_names` — `helpers.dart` (`PRIMITIVE_TYPES` and friends) and `api_endpoint.dart:5`, whose uppercase `GET…DELETE` are **intentional** (the names are compared against HTTP verb strings) but unsuppressed.
+- 3 `unnecessary_brace_in_string_interps`, 1 `unintended_html_in_doc_comment`, and 1 `unused_element_parameter` warning in a test.
+- The `unrelated_type_equality_checks` in `helpers.dart` and the `empty_catches` in `response_resolver.dart` are **gone** — fixed on this branch. Older notes citing them as live are stale.
 
 **A change should not raise that count.** Report the delta, not the total.
 
 ### Testing
 
-- **14 files, 2471 lines, 165 tests, all passing** (~11s). `package:test` with `group`/`test`/`expect`; `mocktail` in exactly 2 files (both under `test/core/auth/`).
+- **19 files, 3444 lines, 235 tests, all passing** (~11s). `package:test` with `group`/`test`/`expect`; `mocktail` in exactly 2 files (both under `test/core/auth/`).
 - `test/` mirrors `lib/src/` **from `core/` down** — `test/core/models/…`, `test/core/auth/…`. Two files break the mirror at the root: `api_to_dart_test.dart` (the original omnibus) and `browser_token_capture_test.dart`. New tests go in the mirrored location.
 - **No fixture files.** Zero non-`.dart` files under `test/`; every JSON/YAML input is an inline string literal. Keep that.
 - **Untested by dedicated file:** the entire `cli/` layer (all 6 commands, `cli_app`, the 1239-line wizard, the selector, prompts, file browser), all three source parsers, all of `generation/`, all of `json_to_dart/`, `http_client`, `response_resolver`, both fetchers, `version`, `update_checker`, `web_assets`. Some are exercised indirectly inside `api_to_dart_test.dart` — "no dedicated file" is not "no coverage". Anything you touch there is untested until you test it.
@@ -161,6 +161,8 @@ The things that bite. Verified in the code at the cited lines.
 - **The Dart `SecretRedactor` and the TypeScript `redact.ts` are deliberately duplicated and have drifted.** TS adds a `QUERY_SECRET` regex for `?token=…` in prose that Dart lacks; Dart's Bearer pattern is `\S+` while TS uses a narrower charset. Fix a redaction gap in **both** or note explicitly that you didn't.
 - **`GitignoreGuard`** appends `.api2dart/` to the user's `.gitignore` because that file holds API keys and, since 0.7.0, **real login credentials in cleartext**. It only triggers when `.git` exists and recognizes 4 spelling equivalents. Renaming the config dir without updating `_entry`/`_equivalents`, or dropping the call from the wizard, silently exposes credentials.
 - **`safety.ts` refuses to read the token from `.api2dart/config.yaml`** — deliberately, because it's cleartext. It requires `APIDOG_TOKEN` or the macOS keychain. Don't "helpfully" add that fallback.
+- **The CLI *does* have that fallback** (`generate_command.dart`, the Apidog no-`-c` path), which is right for a human but would bypass the rule above when the MCP spawns it. So `run()` in `safety.ts` sets `API2DART_NO_CONFIG_TOKEN=1` on **every** spawn, and the CLI honours it. It's opt-out, so it fails open: any new child-process path that skips `run()` silently re-enables cleartext reads. Two tests in `safety.test.ts` pin it.
+- **A saved Apidog binding is read from that same file** (`apidog.last_project_id`, `.environment_id`, `.environment_name`) — non-secret fields only. `ApidogBinding` has no token field by design.
 - **MCP path confinement** (`safety.ts:18-47`): realpath first (so a symlink is judged on its target), walk to the deepest existing ancestor (so a not-yet-created output dir still validates), reject on `rel.startsWith("..")`. `run()` uses `execFile` with `shell: false`, so shell metacharacters in a filter are inert text. Caps: 60s timeout, 100KB output, 32MB buffer. Switching to `exec`, dropping the realpath, or raising a cap reopens the matching hole.
 - **`browser_token_capture.dart`** binds loopback + port 0, 3-minute timeout, closes in `finally`. It has **no CSRF token and no Origin check** on `POST /token` — worst case is injecting a token, not reading one. Its `steps:` are interpolated into HTML raw; they are code-defined today, and passing user input there would be XSS on a loopback page.
 - **`ApiWebServer`** binds loopback-only. `_sanitizeFile` strips separators and `..`; `_sanitizeClass` guards class names. Keep both on any new route that accepts a name.
@@ -221,7 +223,7 @@ Copy-paste pairs that must be changed together — several admit it in their own
 
 ## Working agreements
 
-- **Verify with `dart analyze` *and* `dart test`.** Both. Report the analyze delta against the 20-issue baseline, not the raw count.
+- **Verify with `dart analyze` *and* `dart test`.** Both. Report the analyze delta against the 17-issue baseline, not the raw count.
 - **Report bugs; don't opportunistically fix them.** Surface findings with `file:line` and wait for the go-ahead — including the confirmed `request_log.dart:73` bug above.
 - **Don't mass-modernize.** Match the file you're editing. New subsystems may use modern Dart; old ones stay as they are.
 - **Touching redaction, the gitignore guard, token storage, or MCP path confinement is security work.** Say what invariant you're preserving.

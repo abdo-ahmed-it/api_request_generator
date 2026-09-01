@@ -1,6 +1,6 @@
 name: api_to_dart
 description: "Convert any API (Postman, OpenAPI, Apidog, or YAML) into type-safe Dart actions and response models, from an interactive terminal selector or a local web UI."
-version: 0.7.0
+version: 0.8.0
 repository: https://github.com/abdo-ahmed-it/api_to_dart
 issue_tracker: https://github.com/abdo-ahmed-it/api_to_dart/issues
 

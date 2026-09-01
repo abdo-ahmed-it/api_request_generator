@@ -1,3 +1,87 @@
+## 0.8.0
+
+### Added
+- **Machine-readable `--json` report** — `generate --json` resolves every
+  endpoint and emits a single JSON document (params, response schema, a
+  redacted sample, and inferred Dart types) while writing nothing to disk.
+  `--dry-run` could only ever print filenames, because it exited before
+  responses were resolved. Diagnostics move to stderr so stdout stays
+  parseable, and `--json` now implies non-interactive as well as dry-run.
+- **MCP server** (`tools/api2dart-mcp/`) — exposes endpoint inspection to an
+  agent over stdio, so an API's real shape can be fetched mid-conversation.
+  Five tools; `list`, `inspect` and `read_log` write nothing, while `resend`
+  and `generate` write to disk and prompt every time. It deliberately returns
+  JSON, schema and inferred types rather than generated Dart: the generator
+  infers from one sample and knows nothing about a consuming project's
+  conventions.
+- **Apidog without a spec file** — `generate -s apidog` now works with no
+  `--config`. It replays the project and environment bound in the wizard
+  (saved in `.api2dart/config.yaml`) and exports the spec from Apidog on every
+  run, so nothing is cached and no file has to exist on disk. The MCP server's
+  `config` argument became optional for the same reason; every other source
+  still requires it, enforced before the CLI is invoked. With no binding saved
+  the command exits `64` pointing at the wizard — it never prompts, which
+  would hang the server.
+
+### Fixed
+- **Secrets no longer land in Markdown logs.** `RequestLog` wrote every request
+  header verbatim, so live `Authorization`, `x-api-key` and `x-secret-key`
+  values were stored in clear text. `SecretRedactor` now scrubs the
+  human-facing sections by key name and by value shape — bearer tokens, the
+  duplicated `Bearer Bearer` form seen in real logs, and Laravel Sanctum
+  tokens. Keys are kept and only values replaced, so it stays visible that an
+  endpoint needs auth. The hidden resend-metadata block deliberately keeps real
+  headers, since that is what makes `resend` able to replay a request.
+- **Secrets inside JSON carried as a string** were invisible to redaction: the
+  key holding the document is not secret-named and its value is just a string,
+  so an `access_token` nested in an echoed request body reached the output in
+  clear text. Such strings are now parsed, redacted and re-serialised, in both
+  the Dart redactor and the MCP server's independent copy.
+- **`refresh` restored as a bounded secret word** — a bare
+  `{"refresh": "<token>"}` was passing through. The bounded-word gate now also
+  accepts plurals: `signatures`, `sigs` and `jwts` are lists of credential
+  values and were leaking, while `sessions` stays exempt.
+- **Exit codes are real.** `run()` was `void run() async` in
+  `generate`/`serve`/`resend`/`reset`, so `CommandRunner` could not await it —
+  the async body detached and the process exited `0` regardless of `exitCode`.
+  A flag typo in CI passed the build while generating nothing. `cli_app` now
+  maps a usage error to `64` and an unhandled error to `70`.
+- **The non-TTY guard was ineffective on macOS.** It tested `stdin.hasTerminal`
+  alone, which is `true` for `< /dev/null` — the most common CI redirection —
+  so the endpoint selector still blocked forever on `readKey()`. It now
+  requires `stdout.hasTerminal` too.
+- **`notes[]` was being truncated away.** Array truncation applied to the whole
+  endpoint report, so on a 28-endpoint collection `inspect` returned 2 of 18
+  findings followed by `+16 more items` — the diagnostics the tool exists to
+  produce were what got discarded. Truncation is now confined to the response
+  payload; `notes[]` and `headers[]` are returned in full.
+- **`inferred_types` was blanked by key-based redaction.** It is keyed by
+  response field, so a credential key such as `access_token` appears there too
+  — but its value is a Dart type name, not sampled data, and the placeholder
+  destroyed the one thing the field carries. Type names are now exempted by
+  allowlist; every other path keeps blanket key-based redaction.
+- **Apidog URL-variable prefixes on the non-interactive path.** Apidog leaves
+  `<url_var>` as the first path segment on purpose, and the resolver that
+  strips it into a per-endpoint base URL was not applied when the spec came
+  from a saved binding, yielding paths like `/<url_var>/login` and a bogus
+  fetch URL.
+- **The wizard wrote its temporary Apidog spec into the project root** as
+  `.api2dart_temp_openapi.json`, which the `.api2dart/` gitignore entry does
+  not match — an environment-resolved spec containing internal base URLs could
+  be committed if the process died before cleanup. The export/resolve/parse
+  sequence now lives in one place and writes to the system temp directory.
+- **The MCP server no longer depends on cleartext token storage indirectly.**
+  It refuses to read `.api2dart/config.yaml`, but the CLI it spawns has its own
+  fallback to the token stored there. Every spawn now sets
+  `API2DART_NO_CONFIG_TOKEN=1`, so a missing credential fails loudly instead of
+  quietly reading that file.
+
+### Changed
+- **`tools/` is excluded from the published package.** `.pubignore` replaces
+  `.gitignore` entirely for publishing, so the MCP server's git-ignored
+  `node_modules` was being bundled into the Dart package — 52 MB on disk, an
+  8 MB archive. The archive is now 137 KB.
+
 ## 0.7.0
 
 ### Added

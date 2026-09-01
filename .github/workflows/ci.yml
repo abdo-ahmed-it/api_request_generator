@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  dart:
+    name: Dart package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - run: dart pub get
+
+      # Scoped to files this PR touches. A repo-wide gate fails on the first
+      # run: 29 pre-existing files differ from the current formatter, which is
+      # version drift rather than anything a contributor changed. Reformatting
+      # them wholesale would bury real diffs in noise.
+      - name: Check formatting of changed files
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+          changed=$(git diff --name-only --diff-filter=d \
+            "origin/${{ github.base_ref }}"...HEAD -- '*.dart')
+          if [ -z "$changed" ]; then
+            echo "No Dart files changed."
+            exit 0
+          fi
+          echo "$changed"
+          dart format --output=none --set-exit-if-changed $changed
+
+      # `dart analyze` exits 0 on infos, so a regression from `info` to
+      # `warning` would pass silently. --fatal-infos would also fail the 17
+      # documented pre-existing issues, so the count is asserted instead.
+      - name: Analyze
+        run: |
+          dart analyze > analyze.txt 2>&1 || true
+          cat analyze.txt
+          # `\s*`, not `\s+`: dart analyze indents `info` lines but prints
+          # `warning` at column zero, so requiring whitespace silently skipped
+          # every warning — exactly the info-to-warning regression this gate
+          # exists to catch.
+          count=$(grep -cE '^\s*(info|warning|error) -' analyze.txt || true)
+          echo "Found $count issues (baseline 17)"
+          if [ "$count" -gt 17 ]; then
+            echo "::error::Analyze count rose above the 17-issue baseline."
+            exit 1
+          fi
+
+      - name: Test
+        run: dart test
+
+  mcp:
+    name: MCP server
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/api2dart-mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # `npm test` builds first, so this also proves the sources compile.
+      - name: Test
+        run: npm test
+
+  parity:
+    name: Redaction parity
+    runs-on: ubuntu-latest
+    needs: [dart, mcp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # SecretRedactor is deliberately duplicated in Dart and TypeScript, and
+      # the two have drifted repeatedly. Both suites assert the same key set,
+      # so running them together is what keeps the drift visible.
+      - run: dart pub get
+      - run: dart test test/core/models/secret_redactor_test.dart
+      - run: npm ci
+        working-directory: tools/api2dart-mcp
+      - run: npm test
+        working-directory: tools/api2dart-mcp

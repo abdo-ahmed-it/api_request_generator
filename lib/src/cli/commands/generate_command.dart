@@ -18,7 +18,10 @@ import '../../core/models/login_config.dart';
 import '../../core/models/response_definition.dart';
 import '../../core/resolution/http_client.dart';
 import '../../core/resolution/response_resolver.dart';
+import '../../core/sources/api_fetchers/apidog_project_loader.dart';
+import '../../core/sources/api_fetchers/config_storage.dart';
 import '../../core/sources/api_source.dart';
+import '../../core/sources/url_variable_resolver.dart';
 import '../../core/sources/apidog_source.dart';
 import '../../core/sources/local_file_source.dart';
 import '../../core/sources/openapi_source.dart';
@@ -115,8 +118,16 @@ class GenerateCommand extends Command {
   Future<void> run() async {
     final configPath = argResults!['config'] as String?;
 
-    // If no config provided, launch interactive wizard
     if (configPath == null || configPath.isEmpty) {
+      // `-s apidog` without a file means "use the project the wizard bound".
+      // That path must stay non-interactive: it is what the MCP server calls,
+      // and dropping into the wizard there would hang waiting on a keypress.
+      if ((argResults!['source'] as String?) == 'apidog') {
+        await _runWithFlags();
+        return;
+      }
+
+      // No source hint at all — launch the interactive wizard.
       final wizard = GenerateWizard();
       await wizard.run();
       return;
@@ -132,17 +143,40 @@ class GenerateCommand extends Command {
     // goes to stderr instead.
     final Logger logger = jsonMode ? const StderrLogger() : ConsoleLogger();
     final sourceType = argResults!['source'] as String? ?? 'postman';
-    final configPath = argResults!['config'] as String;
+    final configPath = argResults!['config'] as String?;
     final rootOutputDir = argResults!['output'] as String;
     final dateFolder = _todayFolder();
     final outputDir = '$rootOutputDir/$dateFolder/actions';
     final logsDir = '$rootOutputDir/$dateFolder/logs';
-    final baseUrl = argResults!['base-url'] as String?;
-    final token = argResults!['token'] as String?;
+    final baseUrlArg = argResults!['base-url'] as String?;
+    final tokenArg = argResults!['token'] as String?;
     final noInteractive = argResults!['no-interactive'] as bool;
     final dryRun = argResults!['dry-run'] as bool;
     final modeArg = argResults!['mode'] as String;
     final generateAction = _resolveGenerateAction(modeArg, logger);
+
+    // Apidog with no --config replays the binding the wizard saved, fetching
+    // the spec straight from Apidog so no file has to exist on disk. It yields
+    // the same three values the file path produces, then joins the flow below.
+    EndpointTree? fetchedTree;
+    var baseUrl = baseUrlArg;
+    var token = tokenArg;
+
+    if (configPath == null || configPath.isEmpty) {
+      final load = await _loadSavedApidogProject(logger, token);
+      if (load == null) return; // exit code already set by the loader
+
+      // Apidog leaves `<url_var>` as the first path segment on purpose (it maps
+      // to a full base URL and would corrupt the path if substituted). The
+      // resolver strips it into baseUrlOverride, and it is the single source of
+      // truth the wizard and web server already use — skipping it here would
+      // emit `/<url_var>/login` and a bogus fetch URL.
+      fetchedTree =
+          UrlVariableResolver(load.urlVariables).resolveTree(load.tree);
+      // Explicit flags win over whatever the environment supplied.
+      baseUrl ??= load.baseUrl;
+      token ??= load.token;
+    }
 
     // 1. Select source
     final ApiSource source;
@@ -164,19 +198,23 @@ class GenerateCommand extends Command {
         exit(1);
     }
 
-    // 2. Parse source
-    logger.i('Parsing ${source.sourceName} from $configPath...');
+    // 2. Parse source (skipped when Apidog already supplied the tree)
     EndpointTree tree;
-    try {
-      tree = await source.parse(ApiSourceConfig(
-        filePath: configPath,
-        baseUrl: baseUrl,
-        token: token,
-        outputDir: outputDir,
-      ));
-    } catch (e) {
-      logger.e('Failed to parse source', error: e);
-      exit(1);
+    if (fetchedTree != null) {
+      tree = fetchedTree;
+    } else {
+      logger.i('Parsing ${source.sourceName} from $configPath...');
+      try {
+        tree = await source.parse(ApiSourceConfig(
+          filePath: configPath!,
+          baseUrl: baseUrl,
+          token: token,
+          outputDir: outputDir,
+        ));
+      } catch (e) {
+        logger.e('Failed to parse source', error: e);
+        exit(1);
+      }
     }
 
     if (tree.isEmpty) {
@@ -356,6 +394,63 @@ class GenerateCommand extends Command {
       'endpoint_count': reports.length,
       'endpoints': reports,
     }));
+  }
+
+  /// Loads the Apidog project the wizard last bound, with no prompting.
+  ///
+  /// Returns null after setting an exit code when there is no saved binding or
+  /// no token: callers must not fall back to the wizard here, because this is
+  /// the path the MCP server drives.
+  Future<ApidogProjectLoad?> _loadSavedApidogProject(
+    Logger logger,
+    String? tokenArg,
+  ) async {
+    final binding = ApidogProjectLoader.savedBinding();
+    if (binding == null) {
+      logger.e('No saved Apidog project.');
+      logger.e('Run `api2dart` once and pick a project and environment, '
+          'or pass --config with an exported spec.');
+      exitCode = 64; // EX_USAGE
+      return null;
+    }
+
+    // --token, then APIDOG_TOKEN, then the wizard's saved token. The env var
+    // sits above the config file so a caller that must not depend on cleartext
+    // storage (the MCP server) can supply the credential itself.
+    // An APIDOG_TOKEN that is present but blank must not shadow the saved one.
+    final envToken = Platform.environment['APIDOG_TOKEN']?.trim();
+
+    // The config-file fallback is what lets a human run this without re-typing
+    // a token. Callers that must never depend on cleartext storage — the MCP
+    // server — set API2DART_NO_CONFIG_TOKEN=1 to switch it off, so a missing
+    // credential fails loudly instead of silently reading config.yaml.
+    final allowConfigToken =
+        Platform.environment['API2DART_NO_CONFIG_TOKEN']?.trim() != '1';
+
+    final token = tokenArg ??
+        (envToken != null && envToken.isNotEmpty ? envToken : null) ??
+        (allowConfigToken ? ConfigStorage.get('apidog.token') : null);
+
+    if (token == null || token.isEmpty) {
+      logger.e('No Apidog token.');
+      logger.e('Pass --token, set APIDOG_TOKEN, or run `api2dart` to sign in.');
+      exitCode = 64; // EX_USAGE
+      return null;
+    }
+
+    final envLabel =
+        binding.environmentName.isEmpty ? 'default' : binding.environmentName;
+    logger.i('Apidog project ${binding.projectId} (env: $envLabel)');
+
+    final loader = ApidogProjectLoader(logger: logger);
+    final envVars = await loader.environmentVariables(token, binding);
+    final load = await loader.load(token, binding, envVariables: envVars);
+
+    if (load == null) {
+      exitCode = 1;
+      return null;
+    }
+    return load;
   }
 
   /// Date folder name (YYYY-MM-DD) used to group each run's output.

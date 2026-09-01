@@ -19,6 +19,7 @@ import '../../core/resolution/response_resolver.dart';
 import '../../core/server/api_web_server.dart';
 import '../../core/server/browser_token_capture.dart';
 import '../../core/sources/api_fetchers/apidog_fetcher.dart';
+import '../../core/sources/api_fetchers/apidog_project_loader.dart';
 import '../../core/sources/api_fetchers/config_storage.dart';
 import '../../core/sources/api_fetchers/postman_fetcher.dart';
 import '../../core/sources/gitignore_guard.dart';
@@ -695,92 +696,31 @@ class GenerateWizard {
     return result;
   }
 
+  /// Exports an Apidog project and parses it into a tree.
+  ///
+  /// Delegates to [ApidogProjectLoader] rather than carrying its own copy of
+  /// the export/resolve/parse sequence: the non-interactive `generate -s apidog`
+  /// path uses the same loader, and the two drifting apart is exactly the
+  /// copy-paste failure this package keeps hitting.
   Future<_LoadResult?> _fetchApidogProject(
     String token,
     String projectId, {
     int? environmentId,
     Map<String, String>? envVariables,
   }) async {
-    final fetcher = ApidogFetcher(token: token, logger: _logger);
+    final load = await ApidogProjectLoader(logger: _logger).load(
+      token,
+      ApidogBinding(projectId: projectId, environmentId: environmentId),
+      envVariables: envVariables,
+    );
+    if (load == null) return null;
 
-    _logger.i('Exporting project as OpenAPI...');
-    final openApiJson =
-        await fetcher.exportOpenApi(projectId, environmentId: environmentId);
-
-    if (openApiJson == null) {
-      _logger.e('Failed to export project. Check your token and project ID.');
-      return null;
-    }
-
-    // Resolve {{variables}} in the exported spec using environment variables
-    // Skip URL-type variables (they get embedded in paths and break them)
-    var resolvedJson = openApiJson;
-    int resolvedCount = 0;
-    if (envVariables != null && envVariables.isNotEmpty) {
-      envVariables.forEach((key, value) {
-        if (value.startsWith('http://') || value.startsWith('https://')) {
-          // URL variable — don't replace in spec, it would corrupt paths
-          return;
-        }
-        if (value.isEmpty) return;
-        resolvedJson = resolvedJson.replaceAll('{{$key}}', value);
-        resolvedCount++;
-      });
-      if (resolvedCount > 0) {
-        _logger.i('✓ Resolved $resolvedCount environment variables');
-      }
-    }
-
-    final tempFile = File('.api2dart_temp_openapi.json');
-    tempFile.writeAsStringSync(resolvedJson);
-
-    try {
-      final source = OpenApiSource();
-      final tree = await source.parse(ApiSourceConfig(filePath: tempFile.path));
-
-      // Extract base URL from environment or servers
-      String? baseUrl;
-      if (envVariables != null) {
-        baseUrl = envVariables['url'] ?? envVariables['base_url'];
-      }
-      if (baseUrl == null || baseUrl.isEmpty) {
-        try {
-          final spec = jsonDecode(resolvedJson);
-          final servers = spec['servers'];
-          if (servers is List && servers.isNotEmpty) {
-            baseUrl = servers[0]['url']?.toString();
-          }
-        } catch (_) {}
-      }
-
-      if (baseUrl != null && baseUrl.isNotEmpty) {
-        _logger.i('✓ Base URL: $baseUrl');
-      }
-
-      _logger.i('✓ ${tree.sourceName}: ${tree.totalEndpoints} endpoints');
-
-      // Collect URL-type variables for path resolution
-      final urlVars = <String, String>{};
-      if (envVariables != null) {
-        envVariables.forEach((key, value) {
-          if (value.startsWith('http://') || value.startsWith('https://')) {
-            urlVars[key] = value;
-          }
-        });
-      }
-
-      return _LoadResult(
-        tree: tree,
-        baseUrl: baseUrl,
-        token: envVariables?['token'] ?? envVariables?['mobile_token'],
-        urlVariables: urlVars,
-      );
-    } catch (e) {
-      _logger.e('Failed to parse exported spec', error: e);
-      return null;
-    } finally {
-      if (tempFile.existsSync()) tempFile.deleteSync();
-    }
+    return _LoadResult(
+      tree: load.tree,
+      baseUrl: load.baseUrl,
+      token: load.token,
+      urlVariables: load.urlVariables,
+    );
   }
 
   // ── Step 3: Generate ───────────────────────────────────────────────
@@ -855,16 +795,18 @@ class GenerateWizard {
           _logger.w('↻ ${cleanEndpoint.name}: token rejected '
               '(${result.log?.statusCode}) — re-authenticating…');
 
-          if (await session.refresh(reason: '${result.log?.statusCode} on '
-              '${cleanEndpoint.name}')) {
+          if (await session.refresh(
+              reason: '${result.log?.statusCode} on '
+                  '${cleanEndpoint.name}')) {
             result = await attempt();
 
             if (_isAuthFailure(result)) {
               // A brand-new token still gets rejected, so this was never a
               // stale-token problem. Stop re-logging in for the rest of the run.
               session.markRefreshIneffective();
-              _logger.w('  Still ${result.log?.statusCode} with a fresh token — '
-                  'treating this as a permissions issue, not expiry.');
+              _logger
+                  .w('  Still ${result.log?.statusCode} with a fresh token — '
+                      'treating this as a permissions issue, not expiry.');
             }
           }
         }
@@ -996,9 +938,9 @@ class GenerateWizard {
     stdout.writeln('');
     _logger.w('Your credentials will be stored as plain text in '
         '.api2dart/config.yaml');
-    stdout.writeln(TerminalUtils.gray(
-        '  (this project only, never uploaded anywhere). '
-        'Use development accounts.'));
+    stdout.writeln(
+        TerminalUtils.gray('  (this project only, never uploaded anywhere). '
+            'Use development accounts.'));
     if (!promptConfirm(message: 'Continue?', defaultValue: false)) return null;
 
     final steps = <LoginStep>[];
@@ -1046,7 +988,8 @@ class GenerateWizard {
       otpCode = promptInput(message: 'OTP code (to test with)');
     }
 
-    final result = await service.login(draft, baseUrl: baseUrl, otpCode: otpCode);
+    final result =
+        await service.login(draft, baseUrl: baseUrl, otpCode: otpCode);
     if (!result.isSuccess) {
       _logger.e('✗ Test login failed: ${result.error}');
       _logger.w('Not saving — fix the details and try again next run.');
@@ -1138,8 +1081,8 @@ class GenerateWizard {
     // The OTP value is supplied per-call, so its field is named, not filled.
     String? otpField;
     if (askForOtpField) {
-      final guess = fieldNames.indexWhere((f) =>
-          RegExp(r'otp|code|pin', caseSensitive: false).hasMatch(f));
+      final guess = fieldNames.indexWhere(
+          (f) => RegExp(r'otp|code|pin', caseSensitive: false).hasMatch(f));
       final otpPick = promptSelect(
         message: 'Which field carries the OTP code?',
         options: fieldNames,
@@ -1155,9 +1098,8 @@ class GenerateWizard {
       if (name == otpField) continue; // filled at login time
       final isSecret =
           RegExp(r'pass|pwd|secret|pin', caseSensitive: false).hasMatch(name);
-      final value = isSecret
-          ? promptPassword(message: name)
-          : promptInput(message: name);
+      final value =
+          isSecret ? promptPassword(message: name) : promptInput(message: name);
       if (value != null && value.isNotEmpty) fields[name] = value;
     }
 

@@ -65,6 +65,36 @@ It is deliberately **not** read from `.api2dart/config.yaml`, which stores it
 in clear text. If neither source has it, the error explains the setup rather
 than silently falling back.
 
+That exemption covers the **credential specifically**, not the whole file. When
+`config` is omitted (see below) the CLI does read that file — but only for the
+non-secret binding: `apidog.last_project_id`, `apidog.environment_id` and
+`apidog.environment_name`.
+
+The CLI on its own *does* fall back to `apidog.token` when no token is passed,
+which is the right default for a human at a terminal but would reintroduce the
+cleartext dependency here. So `run()` sets `API2DART_NO_CONFIG_TOKEN=1` on every
+spawn, which disables that fallback: a missing credential fails loudly instead
+of quietly reading `config.yaml`. Removing that env var reopens the hole.
+
+## Running without a spec file
+
+`config` is optional for `source: "apidog"`. Omit it and the CLI replays the
+project and environment bound in the wizard, exporting the spec from Apidog on
+every call — nothing is cached, so the agent always sees the current shape.
+
+Bind one first, from a terminal:
+
+```bash
+api2dart          # Apidog -> project -> environment
+```
+
+With no binding saved, the tool fails with a message pointing at the wizard. It
+never prompts: an interactive fallback would hang the server, which has no
+terminal attached.
+
+Every other source still requires `config` — that is enforced in the server,
+before the CLI is invoked, so the failure names the real problem.
+
 ## Build
 
 ```bash

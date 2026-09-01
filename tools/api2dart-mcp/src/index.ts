@@ -39,8 +39,25 @@ async function guard(fn: () => Promise<string>) {
   }
 }
 
-/** Resolves and validates the source spec path. */
-async function specPath(config: string): Promise<string> {
+/**
+ * Resolves and validates the source spec path.
+ *
+ * `config` is optional only for Apidog, where omitting it tells the CLI to
+ * replay the project/environment bound in the wizard and fetch the spec live.
+ * Every other source needs a real file, so a missing one is rejected here
+ * rather than surfacing as an opaque CLI usage error.
+ */
+async function specPath(
+  source: string,
+  config?: string,
+): Promise<string | undefined> {
+  if (!config) {
+    if (source === "apidog") return undefined;
+    throw new ToolError(
+      `"config" is required for source "${source}". ` +
+        `Only "apidog" can omit it, and only once a project has been bound.`,
+    );
+  }
   const resolved = await resolveInsideProject(PROJECT_ROOT, config);
   if (!existsSync(resolved)) {
     throw new ToolError(`Config file not found: ${config}`);
@@ -74,14 +91,20 @@ server.registerTool(
       "api2dart_inspect on the few endpoints you actually need.",
     inputSchema: {
       source: z.enum(SOURCES).describe("Source type of the spec file."),
-      config: z.string().describe("Path to the collection/spec file, inside the project."),
+      config: z
+        .string()
+        .optional()
+        .describe(
+          "Path to the collection/spec file, inside the project. " +
+            "Omit for source \"apidog\" to use the project bound in the wizard.",
+        ),
       filter: z.string().optional().describe("Case-insensitive substring match on path or name."),
     },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
   async ({ source, config, filter }) =>
     guard(async () => {
-      const spec = await specPath(config);
+      const spec = await specPath(source, config);
       // No base URL: without one the CLI cannot fetch, so this stays offline.
       const { endpoints } = await inspectEndpoints(PROJECT_ROOT, {
         source,
@@ -116,7 +139,13 @@ server.registerTool(
       "flagging shapes that naive models get wrong.",
     inputSchema: {
       source: z.enum(SOURCES).describe("Source type of the spec file."),
-      config: z.string().describe("Path to the collection/spec file, inside the project."),
+      config: z
+        .string()
+        .optional()
+        .describe(
+          "Path to the collection/spec file, inside the project. " +
+            "Omit for source \"apidog\" to use the project bound in the wizard.",
+        ),
       base_url: z.string().optional().describe("Base URL, to fetch a live response sample."),
       filter: z
         .string()
@@ -129,7 +158,7 @@ server.registerTool(
   },
   async ({ source, config, base_url, filter }) =>
     guard(async () => {
-      const spec = await specPath(config);
+      const spec = await specPath(source, config);
       const { endpoints } = await inspectEndpoints(PROJECT_ROOT, {
         source,
         config: spec,
@@ -265,7 +294,13 @@ server.registerTool(
       "requires explicit approval. Output is a scratch draft, not final code.",
     inputSchema: {
       source: z.enum(SOURCES).describe("Source type of the spec file."),
-      config: z.string().describe("Path to the collection/spec file, inside the project."),
+      config: z
+        .string()
+        .optional()
+        .describe(
+          "Path to the collection/spec file, inside the project. " +
+            "Omit for source \"apidog\" to use the project bound in the wizard.",
+        ),
       base_url: z.string().optional().describe("Base URL, to fetch live responses."),
       mode: z.enum(["auto", "action", "response-only"]).optional().describe('Defaults to "auto".'),
       output: z.string().optional().describe(`Output root. Defaults to "${OUTPUT_ROOT}" (gitignored).`),
@@ -274,7 +309,7 @@ server.registerTool(
   },
   async ({ source, config, base_url, mode, output }) =>
     guard(async () => {
-      const spec = await specPath(config);
+      const spec = await specPath(source, config);
       // Keep output inside the project so it stays covered by .gitignore.
       const outputRoot = output ?? OUTPUT_ROOT;
       await resolveInsideProject(PROJECT_ROOT, outputRoot);
@@ -284,10 +319,11 @@ server.registerTool(
         ...baseArgs,
         "generate",
         "-s", source,
-        "-c", spec,
         "--no-interactive",
         "-o", outputRoot,
       ];
+      // Absent only for Apidog, where the CLI replays the bound project.
+      if (spec) args.push("-c", spec);
       if (base_url) args.push("-b", base_url);
       if (mode) args.push("-m", mode);
       const token = await tokenFor(source);

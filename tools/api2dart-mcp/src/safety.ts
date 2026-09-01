@@ -101,7 +101,11 @@ export function run(
         cwd: opts.cwd,
         timeout: opts.timeoutMs ?? TIMEOUT_MS,
         maxBuffer: 32 * 1024 * 1024,
-        env: opts.env ?? process.env,
+        // Forced on every spawn, not just the Apidog ones: it stops the CLI
+        // from falling back to the token in .api2dart/config.yaml, which is
+        // cleartext and which this server refuses to read directly. Without
+        // it, omitting `-t` would reintroduce that dependency indirectly.
+        env: { ...(opts.env ?? process.env), API2DART_NO_CONFIG_TOKEN: "1" },
         shell: false,
       },
       (error, stdout, stderr) => {

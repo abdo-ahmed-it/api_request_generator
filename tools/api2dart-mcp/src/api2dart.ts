@@ -23,7 +23,8 @@ export function resolveInvocation(projectRoot: string): Api2DartInvocation {
 
 export interface GenerateOptions {
   source: string;
-  config: string;
+  /** Omitted for Apidog: the CLI then replays the project bound in the wizard. */
+  config?: string;
   baseUrl?: string;
   token?: string;
   mode?: string;
@@ -34,7 +35,8 @@ export interface GenerateOptions {
 
 /** Builds the argv for `generate`. Every value is a separate array element. */
 export function generateArgs(opts: GenerateOptions): string[] {
-  const args = ["generate", "-s", opts.source, "-c", opts.config, "--no-interactive"];
+  const args = ["generate", "-s", opts.source, "--no-interactive"];
+  if (opts.config) args.push("-c", opts.config);
   if (opts.json) args.push("--json");
   if (opts.dryRun) args.push("--dry-run");
   if (opts.baseUrl) args.push("-b", opts.baseUrl);

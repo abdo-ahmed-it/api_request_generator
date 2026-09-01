@@ -24,16 +24,13 @@ BASELINE: dict[tuple[str, int, str], int] = {
     ("lib/src/cli/ui/endpoint_selector.dart", 199, "unnecessary_brace_in_string_interps"): 1,
     ("lib/src/cli/ui/file_browser.dart", 69, "unnecessary_brace_in_string_interps"): 1,
     ("lib/src/core/json_to_dart/helpers.dart", 5, "non_constant_identifier_names"): 1,
-    # PRIMITIVE_TYPES' five members are all declared on line 21.
-    ("lib/src/core/json_to_dart/helpers.dart", 21, "constant_identifier_names"): 5,
-    # Both halves of the `Type != String` comparison that never fires — a real bug.
-    ("lib/src/core/json_to_dart/helpers.dart", 87, "unrelated_type_equality_checks"): 2,
+    # PRIMITIVE_TYPES' five members, plus ListType's six enum members after
+    # 3e680a3 moved the enum onto this line.
+    ("lib/src/core/json_to_dart/helpers.dart", 21, "constant_identifier_names"): 6,
     # HttpMethod's GET..DELETE, all on line 5. Intentional: the names are
     # compared against HTTP verb strings.
     ("lib/src/core/models/api_endpoint.dart", 5, "constant_identifier_names"): 5,
-    ("lib/src/core/resolution/response_resolver.dart", 134, "empty_catches"): 1,
-    ("lib/src/core/resolution/response_resolver.dart", 146, "empty_catches"): 1,
-    ("lib/src/core/sources/openapi_source.dart", 522, "unintended_html_in_doc_comment"): 1,
+    ("lib/src/core/sources/openapi_source.dart", 535, "unintended_html_in_doc_comment"): 1,
 }
 
 # "  info - path/to/file.dart:12:34 - Message here. - lint_name"
